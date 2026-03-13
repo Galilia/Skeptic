@@ -1,6 +1,11 @@
-import { Suspense } from 'react';
+import { lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useIsMobile } from '@/shared/lib/use-is-mobile';
 import { TerminalPage } from '@/pages/terminal';
+
+const StockMobileView = lazy(
+  () => import('@/features/stock-swiper/ui/StockMobileView'),
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -38,11 +43,17 @@ function LoadingFallback() {
   );
 }
 
+// Separated so useIsMobile runs inside QueryClientProvider
+function AppRouter() {
+  const isMobile = useIsMobile();
+  return isMobile ? <StockMobileView /> : <TerminalPage />;
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <Suspense fallback={<LoadingFallback />}>
-        <TerminalPage />
+        <AppRouter />
       </Suspense>
     </QueryClientProvider>
   );

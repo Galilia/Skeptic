@@ -274,7 +274,12 @@ export default function TerminalPage() {
   }), [stocks, filter]);
 
   const columnDefs = useMemo(() => getStockColumnDefs(), []);
-  const defaultColDef = useMemo<ColDef<ProcessedStock>>(() => ({ suppressMovable: false, wrapText: false }), []);
+  const defaultColDef = useMemo<ColDef<ProcessedStock>>(() => ({
+    suppressMovable: false,
+    wrapText: false,
+    autoHeight: false,
+    cellStyle: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  }), []);
   const onGridReady = useCallback((e: GridReadyEvent<ProcessedStock>) => { gridApiRef.current = e.api; }, []);
   const onRowClicked = useCallback((e: { data?: ProcessedStock }) => {
     if (e.data) setSelectedTicker(e.data.ticker === selectedTicker ? null : e.data.ticker);
@@ -346,7 +351,7 @@ export default function TerminalPage() {
           {isLoading ? (
             <div className="loading-overlay"><div className="spinner" />Connecting to data stream...</div>
           ) : (
-            <div className="ag-theme-terminal ag-theme-alpine" style={{ height: '100%', width: '100%' }}>
+            <div className="ag-theme-terminal ag-theme-alpine-dark" style={{ height: '100%', width: '100%' }}>
               <AgGridReact<ProcessedStock>
                 rowData={filteredStocks}
                 columnDefs={columnDefs}
@@ -354,6 +359,7 @@ export default function TerminalPage() {
                 onGridReady={onGridReady}
                 onRowClicked={onRowClicked}
                 getRowId={(p) => p.data.ticker}
+                rowHeight={48}
                 animateRows={true}
                 context={gridContext}
                 components={{ notifyCellRenderer: NotifyCellRenderer }}
