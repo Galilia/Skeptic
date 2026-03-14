@@ -257,7 +257,7 @@ function LiveClock() {
 export default function TerminalPage() {
   const gridApiRef = useRef<GridApi<ProcessedStock> | null>(null);
   const {
-    stocks, filter, selectedTicker, isConnected, isLoading,
+    stocks, filter, selectedTicker, isConnected, isLoading, connectionError,
     toggleSector, toggleStrategy, toggleVerdict, setSelectedTicker,
     toggleNotify, resetFilter, setFilter,
   } = useTerminalStore();
@@ -350,6 +350,15 @@ export default function TerminalPage() {
         <div className="grid-container">
           {isLoading ? (
             <div className="loading-overlay"><div className="spinner" />Connecting to data stream...</div>
+          ) : stocks.length === 0 && !isConnected && connectionError ? (
+            <div className="loading-overlay" style={{ flexDirection: 'column', gap: 8 }}>
+              <span style={{ fontSize: 16, fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>
+                ⚡ No connection to server
+              </span>
+              <span style={{ fontSize: 13, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+                Retrying in 30 seconds...
+              </span>
+            </div>
           ) : (
             <div className="ag-theme-terminal ag-theme-alpine-dark" style={{ height: '100%', width: '100%' }}>
               <AgGridReact<ProcessedStock>

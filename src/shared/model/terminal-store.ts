@@ -9,11 +9,13 @@ interface TerminalState {
   filter: StockFilter;
   /** Selected ticker for the side-panel audit view */
   selectedTicker: string | null;
-  /** Whether SignalR is currently connected */
+  /** Whether the backend connection is active */
   isConnected: boolean;
   /** Loading state for initial snapshot fetch */
   isLoading: boolean;
-  /** Last SignalR alert messages */
+  /** Non-null when the last connection attempt failed */
+  connectionError: string | null;
+  /** Last alert messages */
   alerts: AlertMessage[];
 
   // Actions
@@ -27,6 +29,7 @@ interface TerminalState {
   setSelectedTicker: (ticker: string | null) => void;
   setConnected: (connected: boolean) => void;
   setLoading: (loading: boolean) => void;
+  setConnectionError: (msg: string | null) => void;
   toggleNotify: (ticker: string) => void;
   addAlert: (alert: AlertMessage) => void;
   dismissAlert: (id: string) => void;
@@ -48,6 +51,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   selectedTicker: null,
   isConnected: false,
   isLoading: true,
+  connectionError: null,
   alerts: [],
 
   setStocks: (stocks) => set({ stocks }),
@@ -99,6 +103,8 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   setConnected: (connected) => set({ isConnected: connected }),
 
   setLoading: (loading) => set({ isLoading: loading }),
+
+  setConnectionError: (msg) => set({ connectionError: msg }),
 
   toggleNotify: (ticker) =>
     set((state) => ({
