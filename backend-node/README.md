@@ -32,11 +32,11 @@ vercel
 
 | Метод | URL | Описание |
 |---|---|---|
-| GET | `/api/v1/stocks/snapshot` | Все акции (первоначальная загрузка) |
-| GET | `/api/v1/portfolio/tickers` | Список тикеров |
-| POST | `/api/v1/portfolio/tickers` | Добавить тикер |
-| DELETE | `/api/v1/portfolio/tickers/:ticker` | Удалить тикер |
-| PATCH | `/api/v1/portfolio/tickers/:ticker/notify` | Включить алерт |
+| GET | `/snapshot` | Все акции (первоначальная загрузка) |
+| GET | `/tickers` | Список тикеров |
+| POST | `/tickers` | Добавить тикер |
+| DELETE | `/tickers/:ticker` | Удалить тикер |
+| PATCH | `/tickers/:ticker/notify` | Включить алерт |
 | GET | `/health` | Проверка статуса |
 
 ## WebSocket (Socket.io)

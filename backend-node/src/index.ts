@@ -57,6 +57,6 @@ setInterval(clearHistoryCache, CACHE_TTL_MS);
 const PORT = parseInt(process.env.PORT ?? '5000');
 app.listen(PORT, async () => {
   console.log(`🚀 Skeptic's Terminal backend running on port ${PORT}`);
-  console.log(`   REST: http://localhost:${PORT}/api/v1`);
+  console.log(`   REST: http://localhost:${PORT}`);
   await startup();
 });
