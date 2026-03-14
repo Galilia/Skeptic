@@ -2,7 +2,7 @@ import NodeCache from 'node-cache';
 import type { OhlcvBar } from '../types.js';
 
 const API_KEY = process.env.FMP_API_KEY ?? '';
-const BASE = 'https://financialmodelingprep.com/api/v3';
+const BASE = 'https://financialmodelingprep.com/stable';
 
 /** Cache historical bars for 24 hours, live quotes for 1 minute */
 const historyCache = new NodeCache({ stdTTL: 86400 });
@@ -40,34 +40,30 @@ interface FmpHistoricalResponse {
  * Fetch historical OHLCV bars for a single ticker.
  * Cached for 24 hours — only refreshes once per day.
  */
-export async function getHistoricalBars(
-  ticker: string,
-  days = 220
-): Promise<OhlcvBar[]> {
+export async function getHistoricalBars(ticker: string, days = 220): Promise<OhlcvBar[]> {
   const cacheKey = `hist_${ticker}`;
   const cached = historyCache.get<OhlcvBar[]>(cacheKey);
   if (cached) return cached;
 
-  console.log(`[FMP] Fetching history for ${ticker} via Chart API`);
-
-  const url = `${BASE}/historical-chart/1day/${ticker}?apikey=${API_KEY}`;
+  const url = `${BASE}/historical-price-eod/full?symbol=${ticker}&apikey=${API_KEY}`;
   
   try {
     const res = await fetch(url);
     const json = await res.json() as any;
 
-  
     if (json["Error Message"]) {
       console.error(`[FMP ERROR] ${ticker}: ${json["Error Message"]}`);
       return [];
     }
 
-    if (!Array.isArray(json) || json.length === 0) {
-      console.warn(`[FMP] No chart data for ${ticker}. Response:`, JSON.stringify(json).slice(0, 100));
+    const data = Array.isArray(json) ? json : json.historical;
+
+    if (!data || data.length === 0) {
+      console.warn(`[FMP] No stable data for ${ticker}`);
       return [];
     }
 
-    const bars: OhlcvBar[] = json.slice(0, days).reverse().map((b: any) => ({
+    const bars: OhlcvBar[] = data.slice(0, days).reverse().map((b: any) => ({
       date: b.date,
       open: b.open,
       high: b.high,
@@ -77,40 +73,43 @@ export async function getHistoricalBars(
       avgVolume5d: b.volume,
     }));
 
-    console.log(`[FMP] Successfully parsed ${bars.length} bars for ${ticker}`);
     historyCache.set(cacheKey, bars);
     return bars;
-  } catch (error) {
-    console.error(`[FMP FETCH ERROR] ${ticker}:`, error);
+  } catch (e) {
+    console.error(`[FMP Stable Error] ${ticker}:`, e);
     return [];
   }
 }
-
 /**
  * Fetch live quotes for all tickers in a single batch request.
  * Cached for 1 minute — this is the "live" price update.
  */
-export async function getLiveQuotes(
-  tickers: string[]
-): Promise<Record<string, FmpQuote>> {
-  const cacheKey = `quotes_${tickers.join(',')}`;
-  const cached = quoteCache.get<Record<string, FmpQuote>>(cacheKey);
-  if (cached) return cached;
-
-  console.log(`[FMP] Fetching live quotes for ${tickers.length} tickers`);
-  const url = `${BASE}/quote/${tickers.join(',')}?apikey=${API_KEY}`;
-  const res = await fetch(url);
-  const quotes = await res.json() as FmpQuote[];
-
-  const result: Record<string, FmpQuote> = {};
-  if (Array.isArray(quotes)) {
-    quotes.forEach((q) => { result[q.symbol] = q; });
+export async function getLiveQuotes(tickers: string[]): Promise<Record<string, any>> {
+  const url = `${BASE}/quote?symbol=${tickers.join(',')}&apikey=${API_KEY}`;
+  
+  try {
+    const res = await fetch(url);
+    const quotes = await res.json() as any[];
+    
+    const result: Record<string, any> = {};
+    if (Array.isArray(quotes)) {
+      quotes.forEach((q) => {
+        result[q.symbol] = {
+          symbol: q.symbol,
+          price: q.price,
+          change: q.change,
+          changesPercentage: q.changesPercentage,
+          volume: q.volume,
+          avgVolume: q.avgVolume,
+        };
+      });
+    }
+    return result;
+  } catch (e) {
+    console.error(`[FMP Stable Quote Error]:`, e);
+    return {};
   }
-
-  quoteCache.set(cacheKey, result);
-  return result;
 }
-
 /** Clear history cache for a specific ticker (force refresh) */
 export function clearHistoryCache(ticker: string): void {
   historyCache.del(`hist_${ticker}`);
