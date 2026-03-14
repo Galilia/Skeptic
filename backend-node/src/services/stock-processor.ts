@@ -35,6 +35,17 @@ function generateBars(basePrice: number, days: number): OhlcvBar[] {
   return bars;
 }
 
+function isMarketOpen(): boolean {
+  const now = new Date();
+  const day = now.getUTCDay(); // 0=Sun, 6=Sat
+  if (day === 0 || day === 6) return false;
+  const hours = now.getUTCHours();
+  const minutes = now.getUTCMinutes();
+  const totalMinutes = hours * 60 + minutes;
+  // 9:30 ET = 14:30 UTC, 16:00 ET = 21:00 UTC
+  return totalMinutes >= 870 && totalMinutes <= 1260;
+}
+
 /** Add live price jitter */
 function jitter(price: number, volatility = 0.003): number {
   return parseFloat((price * (1 + (Math.random() - 0.5) * 2 * volatility)).toFixed(2));
@@ -49,9 +60,11 @@ export function processStock(ticker: string): ProcessedStock | null {
 
   const bars = generateBars(meta.basePrice, 220);
 
-  // Apply live jitter to last bar
+  // Apply live jitter to last bar only during market hours
   const last = bars[bars.length - 1];
-  last.close = jitter(last.close);
+  if (isMarketOpen()) {
+    last.close = jitter(last.close);
+  }
 
   const indicators = computeIndicators(bars);
   const wick       = detectWick(bars);
