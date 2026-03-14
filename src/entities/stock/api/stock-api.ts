@@ -1,6 +1,6 @@
 import type { ProcessedStock } from '../model/types/stock';
 
-const BASE_URL = '';
+const BASE_URL = import.meta.env.VITE_API_URL ?? '';
 const TIMEOUT_MS = 600_000;
 
 async function fetchWithTimeout<T>(url: string, options?: RequestInit): Promise<T> {
