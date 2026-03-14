@@ -58,42 +58,51 @@ export function useSignalRConnection() {
   }
 
   function initSocketIO() {
-    try {
-      const socket = io(`${import.meta.env.VITE_API_URL}/stockHub`, {
-        transports: ['websocket'],
-        reconnection: true,
+    setLoading(true);
+
+    const socket = io(`${import.meta.env.VITE_API_URL}/stockHub`, {
+      transports: ['websocket'],
+      reconnection: true,
+    });
+    socketRef.current = socket;
+
+    const fallbackTimer = setTimeout(() => {
+      if (!socket.connected) {
+        console.warn('[Socket.io] No connection after 5s, falling back to demo mode');
+        socket.disconnect();
+        socketRef.current = null;
+        initDemoMode();
+      }
+    }, 5000);
+
+    socket.on('connect', () => {
+      clearTimeout(fallbackTimer);
+      setConnected(true);
+      setLoading(false);
+    });
+
+    socket.on('disconnect', () => setConnected(false));
+
+    socket.on('reconnect', () => setConnected(true));
+    socket.on('reconnect_attempt', () => setConnected(false));
+
+    socket.on('StockUpdate', (stock: ProcessedStock) => {
+      updateStock(stock);
+    });
+
+    socket.on('BatchStockUpdate', (stocks: ProcessedStock[]) => {
+      stocks.forEach(updateStock);
+    });
+
+    socket.on('PriceAlert', (ticker: string, price: number, target: number) => {
+      addAlert({
+        id: `${ticker}-${Date.now()}`,
+        ticker,
+        message: `${ticker} @ $${price.toFixed(2)} — Hit Buy Target $${target.toFixed(2)}`,
+        type: 'price_alert',
+        timestamp: new Date().toISOString(),
       });
-      socketRef.current = socket;
-
-      socket.on('connect', () => {
-        setConnected(true);
-        setLoading(false);
-      });
-
-      socket.on('disconnect', () => setConnected(false));
-
-      socket.on('reconnect', () => setConnected(true));
-      socket.on('reconnect_attempt', () => setConnected(false));
-
-      socket.on('BatchStockUpdate', (stocks: ProcessedStock[]) => {
-        stocks.forEach(updateStock);
-      });
-
-      socket.on('PriceAlert', (ticker: string, price: number, target: number) => {
-        addAlert({
-          id: `${ticker}-${Date.now()}`,
-          ticker,
-          message: `${ticker} @ $${price.toFixed(2)} — Hit Buy Target $${target.toFixed(2)}`,
-          type: 'price_alert',
-          timestamp: new Date().toISOString(),
-        });
-      });
-
-      setLoading(true);
-    } catch (err) {
-      console.error('[Socket.io] Connection failed, falling back to demo mode', err);
-      initDemoMode();
-    }
+    });
   }
 
   function cleanup() {
