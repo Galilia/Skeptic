@@ -1,6 +1,6 @@
 import type { ProcessedStock } from '../model/types/stock';
 
-const BASE_URL = '/api/v1';
+const BASE_URL = '';
 const TIMEOUT_MS = 600_000;
 
 async function fetchWithTimeout<T>(url: string, options?: RequestInit): Promise<T> {
@@ -43,4 +43,4 @@ export const toggleNotifyApi = async (ticker: string, enabled: boolean): Promise
 
 /** Get the latest snapshot for all monitored stocks (initial load before SignalR) */
 export const getStockSnapshotApi = async (): Promise<ProcessedStock[]> =>
-  fetchWithTimeout<ProcessedStock[]>('/stocks/snapshot');
+  fetchWithTimeout<ProcessedStock[]>('/snapshot');

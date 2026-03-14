@@ -18,7 +18,7 @@ app.use(cors({
 app.use(express.json());
 
 // ── REST routes ───────────────────────────────────────────────────────────────
-app.use('/api/v1', router);
+app.use('/', router);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
 
