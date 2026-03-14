@@ -27,7 +27,8 @@ export function useSignalRConnection() {
 
     try {
       const res = await fetch(`${apiUrl}/snapshot`);
-      const stocks: ProcessedStock[] = await res.json();
+      const data = await res.json();
+      const stocks: ProcessedStock[] = data.filter((s: any) => s && s.ticker && s.indicators);
       setStocks(stocks);
       setConnected(true);
       setLoading(false);
@@ -44,7 +45,8 @@ export function useSignalRConnection() {
       try {
         const apiUrl = import.meta.env.VITE_API_URL ?? '';
         const res = await fetch(`${apiUrl}/snapshot`);
-        const stocks: ProcessedStock[] = await res.json();
+        const data = await res.json();
+      const stocks: ProcessedStock[] = data.filter((s: any) => s && s.ticker && s.indicators);
         stocks.forEach(updateStock);
         setConnected(true);
         setConnectionError(null);

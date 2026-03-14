@@ -138,11 +138,11 @@ const StockCard = forwardRef<CardHandle, {
   const verdictType  = stock.verdictType as VerdictType;
   const verdictColor = VERDICT_COLORS[verdictType];
 
-  const aboveSma50  = stock.price >= stock.indicators.sma50;
-  const aboveSma200 = stock.price >= stock.indicators.sma200;
-  const rsi         = stock.indicators.rsi14;
+  const aboveSma50  = stock.price >= (stock.indicators?.sma50 ?? 0);
+  const aboveSma200 = stock.price >= (stock.indicators?.sma200 ?? 0);
+  const rsi         = stock.indicators?.rsi14 ?? 0;
   const rsiColor    = rsi < 50 ? '#00d4aa' : rsi < 70 ? '#ffb300' : '#ef5350';
-  const smaPct      = stock.indicators.smaProximityPct;
+  const smaPct      = stock.indicators?.smaProximityPct ?? 0;
   const changeSign  = stock.change >= 0 ? '+' : '';
   const changeColor = stock.change >= 0 ? '#00d4aa' : '#ef5350';
 
@@ -241,7 +241,7 @@ const StockCard = forwardRef<CardHandle, {
       </div>
 
       {/* Price Orb */}
-      <PriceOrb price={stock.price} sma50={stock.indicators.sma50} />
+      <PriceOrb price={stock.price} sma50={stock.indicators?.sma50 ?? 0} />
 
       {/* Mini Orbs */}
       <div style={{ display: 'flex', gap: 14, justifyContent: 'center' }}>

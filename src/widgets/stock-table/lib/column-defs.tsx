@@ -158,11 +158,11 @@ const rsiCol: ColDef<ProcessedStock> = {
   ...baseColDef,
   headerName: 'RSI',
   width: 80,
-  valueGetter: (p: ValueGetterParams<ProcessedStock>) => p.data?.indicators.rsi14,
+  valueGetter: (p: ValueGetterParams<ProcessedStock>) => p.data?.indicators?.rsi14,
   valueFormatter: (p) => p.value != null ? p.value.toFixed(1) : '—',
   cellClassRules: {
-    'rsi-overbought': (p) => (p.data as ProcessedStock)?.indicators.rsi14 > 70,
-    'rsi-oversold': (p) => (p.data as ProcessedStock)?.indicators.rsi14 < 30,
+    'rsi-overbought': (p) => ((p.data as ProcessedStock)?.indicators?.rsi14 ?? 0) > 70,
+    'rsi-oversold': (p) => ((p.data as ProcessedStock)?.indicators?.rsi14 ?? 0) < 30,
   },
 };
 
@@ -170,12 +170,12 @@ const smaProximityCol: ColDef<ProcessedStock> = {
   ...baseColDef,
   headerName: 'SMA50 %',
   width: 90,
-  valueGetter: (p: ValueGetterParams<ProcessedStock>) => p.data?.indicators.smaProximityPct,
+  valueGetter: (p: ValueGetterParams<ProcessedStock>) => p.data?.indicators?.smaProximityPct,
   valueFormatter: (p) => p.value != null ? `${p.value > 0 ? '+' : ''}${p.value.toFixed(2)}%` : '—',
   cellClassRules: {
-    'sma-positive': (p) => (p.data as ProcessedStock)?.indicators.smaProximityPct > 0,
-    'sma-negative': (p) => (p.data as ProcessedStock)?.indicators.smaProximityPct < 0,
-    'sma-overextended': (p) => (p.data as ProcessedStock)?.indicators.smaProximityPct > 12,
+    'sma-positive': (p) => ((p.data as ProcessedStock)?.indicators?.smaProximityPct ?? 0) > 0,
+    'sma-negative': (p) => ((p.data as ProcessedStock)?.indicators?.smaProximityPct ?? 0) < 0,
+    'sma-overextended': (p) => ((p.data as ProcessedStock)?.indicators?.smaProximityPct ?? 0) > 12,
   },
 };
 
@@ -183,7 +183,7 @@ const atrCol: ColDef<ProcessedStock> = {
   ...baseColDef,
   headerName: 'ATR14',
   width: 80,
-  valueGetter: (p: ValueGetterParams<ProcessedStock>) => p.data?.indicators.atr14,
+  valueGetter: (p: ValueGetterParams<ProcessedStock>) => p.data?.indicators?.atr14,
   valueFormatter: (p) => p.value != null ? usd(p.value) : '—',
 };
 
