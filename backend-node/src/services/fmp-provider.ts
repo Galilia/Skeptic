@@ -46,39 +46,44 @@ export async function getHistoricalBars(
 ): Promise<OhlcvBar[]> {
   const cacheKey = `hist_${ticker}`;
   const cached = historyCache.get<OhlcvBar[]>(cacheKey);
-  if (cached) {
-    console.log(`[FMP] Cache hit for ${ticker} history`);
-    return cached;
-  }
+  if (cached) return cached;
 
-  console.log(`[FMP] Fetching history for ${ticker}`);
-  const url = `${BASE}/historical-price-full/${ticker}?timeseries=${days}&apikey=${API_KEY}`;
-  const res = await fetch(url);
-  const json = (await res.json()) as FmpHistoricalResponse;
+  console.log(`[FMP] Fetching history for ${ticker} via Chart API`);
 
-  if (json[`Error Message`]) {
-    console.error(`[FMP ERROR] ${ticker}: ${json["Error Message"]}`);
+  const url = `${BASE}/historical-chart/1day/${ticker}?apikey=${API_KEY}`;
+  
+  try {
+    const res = await fetch(url);
+    const json = await res.json() as any;
+
+  
+    if (json["Error Message"]) {
+      console.error(`[FMP ERROR] ${ticker}: ${json["Error Message"]}`);
+      return [];
+    }
+
+    if (!Array.isArray(json) || json.length === 0) {
+      console.warn(`[FMP] No chart data for ${ticker}. Response:`, JSON.stringify(json).slice(0, 100));
+      return [];
+    }
+
+    const bars: OhlcvBar[] = json.slice(0, days).reverse().map((b: any) => ({
+      date: b.date,
+      open: b.open,
+      high: b.high,
+      low: b.low,
+      close: b.close,
+      volume: b.volume,
+      avgVolume5d: b.volume,
+    }));
+
+    console.log(`[FMP] Successfully parsed ${bars.length} bars for ${ticker}`);
+    historyCache.set(cacheKey, bars);
+    return bars;
+  } catch (error) {
+    console.error(`[FMP FETCH ERROR] ${ticker}:`, error);
     return [];
   }
-
-if (!json.historical || json.historical.length === 0) {
-    console.warn(`[FMP] No history for ${ticker}. Raw response:`, JSON.stringify(json));
-    return [];
-  }
-
-  // FMP returns newest first — reverse to oldest first
-  const bars: OhlcvBar[] = json.historical.reverse().map((b) => ({
-    date: b.date,
-    open: b.open,
-    high: b.high,
-    low: b.low,
-    close: b.close,
-    volume: b.volume,
-    avgVolume5d: b.volume,
-  }));
-
-  historyCache.set(cacheKey, bars);
-  return bars;
 }
 
 /**
