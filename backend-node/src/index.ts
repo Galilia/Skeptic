@@ -5,6 +5,8 @@ import { setLivePrices, METADATA } from './services/stock-processor.js';
 import { getLiveQuotes } from './services/yahoo-provider.js';
 import { getCachedBars, clearHistoryCache } from './services/history-cache.js';
 
+console.log('POLYGON_API_KEY loaded:', process.env.POLYGON_API_KEY ? 'YES' : 'NO - MISSING');
+
 const app = express();
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
