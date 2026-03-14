@@ -57,10 +57,29 @@ export function useSignalRConnection() {
     }, 5000);
   }
 
-  function initSocketIO() {
+  async function initSocketIO() {
     setLoading(true);
 
-    const socket = io(`${import.meta.env.VITE_API_URL}/stockHub`, {
+    const apiUrl = import.meta.env.VITE_API_URL;
+    console.log('API URL:', apiUrl);
+
+    if (!apiUrl) {
+      console.warn('[Socket.io] VITE_API_URL is undefined — fetching snapshot from /api/v1/stocks/snapshot');
+      try {
+        const res = await fetch('/api/v1/stocks/snapshot');
+        const stocks: ProcessedStock[] = await res.json();
+        setStocks(stocks);
+        setConnected(true);
+      } catch (err) {
+        console.error('[Snapshot] Failed to fetch snapshot, falling back to demo mode', err);
+        initDemoMode();
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    const socket = io(`${apiUrl}/stockHub`, {
       transports: ['websocket'],
       reconnection: true,
     });
