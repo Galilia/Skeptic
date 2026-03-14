@@ -22,11 +22,8 @@ export function useSignalRConnection() {
     setLoading(true);
     setConnectionError(null);
 
-    const apiUrl = import.meta.env.VITE_API_URL ?? '';
-    console.log('API URL:', apiUrl);
-
     try {
-      const res = await fetch(`${apiUrl}/snapshot`);
+      const res = await fetch('/api/snapshot');
       const data = await res.json();
       const stocks: ProcessedStock[] = data.filter((s: any) => s && s.ticker && s.indicators);
       setStocks(stocks);
@@ -43,8 +40,7 @@ export function useSignalRConnection() {
     // Poll every 30 seconds for fresh prices
     intervalRef.current = setInterval(async () => {
       try {
-        const apiUrl = import.meta.env.VITE_API_URL ?? '';
-        const res = await fetch(`${apiUrl}/snapshot`);
+        const res = await fetch('/api/snapshot');
         const data = await res.json();
       const stocks: ProcessedStock[] = data.filter((s: any) => s && s.ticker && s.indicators);
         stocks.forEach(updateStock);
