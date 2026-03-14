@@ -1,6 +1,29 @@
-import yahooFinance from 'yahoo-finance2'; // Стандартный импорт
+import yf from 'yahoo-finance2';
 import NodeCache from 'node-cache';
 import type { OhlcvBar } from '../types.js';
+
+// --- ESM FIX: Гарантируем получение рабочего инстанса ---
+const getYahooInstance = () => {
+  // 1. Пробуем дефолтный импорт
+  let instance = yf as any;
+  
+  // 2. Если это обертка ESM, берем .default
+  if (instance.default) instance = instance.default;
+
+  // 3. Если это Класс (а не инстанс), создаем новый объект
+  // Именно это фиксит ошибку "Call const yahooFinance = new YahooFinance() first"
+  if (typeof instance === 'function') {
+    try {
+      return new instance();
+    } catch (e) {
+      return instance;
+    }
+  }
+  return instance;
+};
+
+const yahooFinance = getYahooInstance();
+// -------------------------------------------------------
 
 const historyCache = new NodeCache({ stdTTL: 86400 });
 const quoteCache = new NodeCache({ stdTTL: 30 });
@@ -16,10 +39,7 @@ export async function getHistoricalBars(ticker: string, days = 220): Promise<Ohl
   startDate.setDate(startDate.getDate() - days);
 
   try {
-    // В некоторых окружениях ESM нужно обращаться через .default
-    const provider = (yahooFinance as any).default || yahooFinance;
-    
-    const result = await provider.historical(ticker, {
+    const result = await yahooFinance.historical(ticker, {
       period1: startDate,
       interval: '1d'
     });
@@ -53,8 +73,7 @@ export async function getLiveQuotes(tickers: string[]): Promise<Record<string, a
   if (cached) return cached;
 
   try {
-    const provider = (yahooFinance as any).default || yahooFinance;
-    const results = await provider.quote(tickers);
+    const results = await yahooFinance.quote(tickers);
     const mapped: Record<string, any> = {};
 
     if (Array.isArray(results)) {
@@ -80,4 +99,8 @@ export async function getLiveQuotes(tickers: string[]): Promise<Record<string, a
 
 export function clearHistoryCache(ticker: string): void {
   historyCache.del(`hist_${ticker}`);
+}
+
+export function clearQuoteCache(tickers: string[]): void {
+  quoteCache.del(`quotes_${tickers.join(',')}`);
 }
