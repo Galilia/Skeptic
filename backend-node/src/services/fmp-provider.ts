@@ -1,4 +1,4 @@
-import yahooFinance from 'yahoo-finance2';
+import yahooFinance from 'yahoo-finance2'; // Стандартный импорт
 import NodeCache from 'node-cache';
 import type { OhlcvBar } from '../types.js';
 
@@ -16,18 +16,20 @@ export async function getHistoricalBars(ticker: string, days = 220): Promise<Ohl
   startDate.setDate(startDate.getDate() - days);
 
   try {
-    // Явно указываем тип результата для TS
-    const result = await yahooFinance.historical(ticker, {
+    // В некоторых окружениях ESM нужно обращаться через .default
+    const provider = (yahooFinance as any).default || yahooFinance;
+    
+    const result = await provider.historical(ticker, {
       period1: startDate,
       interval: '1d'
-    }) as any[];
+    });
 
     if (!result || result.length === 0) {
       console.warn(`[Yahoo] No data for ${ticker}`);
       return [];
     }
 
-    const bars: OhlcvBar[] = result.map((b) => ({
+    const bars: OhlcvBar[] = result.map((b: any) => ({
       date: b.date instanceof Date ? b.date.toISOString().split('T')[0] : String(b.date),
       open: b.open,
       high: b.high,
@@ -51,11 +53,12 @@ export async function getLiveQuotes(tickers: string[]): Promise<Record<string, a
   if (cached) return cached;
 
   try {
-    const results = await yahooFinance.quote(tickers) as any[];
+    const provider = (yahooFinance as any).default || yahooFinance;
+    const results = await provider.quote(tickers);
     const mapped: Record<string, any> = {};
 
     if (Array.isArray(results)) {
-      results.forEach((q) => {
+      results.forEach((q: any) => {
         mapped[q.symbol] = {
           symbol: q.symbol,
           price: q.regularMarketPrice,
