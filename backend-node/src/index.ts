@@ -1,62 +1,118 @@
 import express from 'express';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
 import cors from 'cors';
-import { router } from './routes/portfolio.js';
-import { setLivePrices, METADATA } from './services/stock-processor.js';
-import { getLiveQuotes } from './services/yahoo-provider.js';
-import { getCachedBars, clearHistoryCache } from './services/history-cache.js';
-
-console.log('POLYGON_API_KEY loaded:', process.env.POLYGON_API_KEY ? 'YES' : 'NO - MISSING');
+import { processBatch, setNotify, PORTFOLIO_META } from './services/stock-processor.js';
+import type { ProcessedStock } from './types.js';
 
 const app = express();
+const server = createServer(app);
+
+// ── Portfolio state ───────────────────────────────────────────────────────────
+let portfolio: string[] = Object.keys(PORTFOLIO_META);
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
+const FRONTEND_URL = process.env.FRONTEND_URL ?? '*';
+
 app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PATCH', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  origin: FRONTEND_URL === '*' ? '*' : [FRONTEND_URL, 'http://localhost:5173'],
+  credentials: true,
 }));
 app.use(express.json());
 
-// ── REST routes ───────────────────────────────────────────────────────────────
-app.use('/', router);
+// ── Socket.io ─────────────────────────────────────────────────────────────────
+const io = new Server(server, {
+  path: '/stockHub',
+  cors: {
+    origin: FRONTEND_URL === '*' ? '*' : [FRONTEND_URL, 'http://localhost:5173'],
+    credentials: true,
+  },
+  transports: ['websocket', 'polling'],
+});
 
-app.get('/health', (_req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
+io.on('connection', (socket) => {
+  console.log(`[WS] Connected: ${socket.id}`);
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-const TICKERS = Object.keys(METADATA);
+  // Send current snapshot immediately on connect
+  processBatch(portfolio).then((stocks) => {
+    socket.emit('BatchStockUpdate', stocks);
+  });
 
-async function refreshLivePrices(): Promise<void> {
+  socket.on('SubscribeToTicker', (ticker: string) => {
+    socket.join(ticker.toUpperCase());
+  });
+
+  socket.on('UnsubscribeFromTicker', (ticker: string) => {
+    socket.leave(ticker.toUpperCase());
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`[WS] Disconnected: ${socket.id}`);
+  });
+});
+
+// ── REST Routes ───────────────────────────────────────────────────────────────
+
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok', ts: new Date().toISOString(), tickers: portfolio.length });
+});
+
+/** Initial snapshot for polling clients */
+app.get('/snapshot', async (_req, res) => {
   try {
-    const prices = await getLiveQuotes(TICKERS);
-    setLivePrices(prices);
-    console.log(`[Polygon] Live prices updated for ${Object.keys(prices).length} tickers`);
-  } catch (err) {
-    console.error('[Polygon] Failed to fetch live prices:', err);
+    const stocks = await processBatch(portfolio);
+    res.json(stocks);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+app.get('/tickers', (_req, res) => res.json(portfolio));
+
+app.post('/tickers', (req, res) => {
+  const ticker = (req.body?.ticker ?? '').trim().toUpperCase();
+  if (!ticker || ticker.length > 5) { res.status(400).json({ error: 'Invalid ticker' }); return; }
+  if (!portfolio.includes(ticker)) portfolio.push(ticker);
+  res.json({ ticker });
+});
+
+app.delete('/tickers/:ticker', (req, res) => {
+  portfolio = portfolio.filter((t) => t !== req.params.ticker.toUpperCase());
+  res.sendStatus(204);
+});
+
+app.patch('/tickers/:ticker/notify', (req, res) => {
+  setNotify(req.params.ticker, req.body?.enabled ?? false);
+  res.sendStatus(204);
+});
+
+// ── 1-minute broadcast loop ───────────────────────────────────────────────────
+const UPDATE_INTERVAL = parseInt(process.env.UPDATE_INTERVAL_MS ?? '60000');
+
+async function broadcastStocks(): Promise<void> {
+  try {
+    const stocks = await processBatch(portfolio);
+    io.emit('BatchStockUpdate', stocks);
+    console.log(`[${new Date().toISOString()}] Broadcast ${stocks.length} stocks to ${io.engine.clientsCount} clients`);
+
+    // Fire price alerts
+    stocks.forEach((s: ProcessedStock) => {
+      if (s.notifyEnabled && s.price <= s.buyTarget) {
+        io.to(s.ticker).emit('PriceAlert', s.ticker, s.price, s.buyTarget);
+        console.log(`[ALERT] ${s.ticker} @ ${s.price} ≤ ${s.buyTarget}`);
+      }
+    });
+  } catch (e) {
+    console.error('[broadcast] Error:', e);
   }
 }
 
-// ── Startup: preload history + initial live prices ────────────────────────────
-async function startup(): Promise<void> {
-  console.log('[Startup] Preloading history cache…');
-  await Promise.all(TICKERS.map(t => getCachedBars(t, 220)));
-  console.log('[Startup] History preloaded');
-  await refreshLivePrices();
-}
-
-// ── Scheduled tasks ───────────────────────────────────────────────────────────
-const LIVE_INTERVAL_MS = parseInt(process.env.UPDATE_INTERVAL_MS ?? '0') || 5 * 60_000; // 5 minutes
-const CACHE_TTL_MS     = 24 * 60 * 60 * 1000; // 24 hours
-
-// Every 5 minutes: refresh live prices so snapshot endpoint returns fresh data
-setInterval(refreshLivePrices, LIVE_INTERVAL_MS);
-
-// Every 24 hours: clear history cache to force a fresh Polygon fetch
-setInterval(clearHistoryCache, CACHE_TTL_MS);
+setInterval(broadcastStocks, UPDATE_INTERVAL);
 
 // ── Start ─────────────────────────────────────────────────────────────────────
-const PORT = parseInt(process.env.PORT ?? '5000');
-app.listen(PORT, async () => {
-  console.log(`🚀 Skeptic's Terminal backend running on port ${PORT}`);
-  console.log(`   REST: http://localhost:${PORT}`);
-  await startup();
+const PORT = parseInt(process.env.PORT ?? '8080');
+server.listen(PORT, () => {
+  console.log(`🚀 Skeptic's Terminal backend on port ${PORT}`);
+  console.log(`   FMP_API_KEY: ${process.env.FMP_API_KEY ? 'YES ✅' : 'NO ❌'}`);
+  console.log(`   Update interval: ${UPDATE_INTERVAL}ms`);
 });

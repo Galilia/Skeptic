@@ -1,11 +1,10 @@
-import type { OhlcvBar, ProcessedStock } from '../types.js';
+import type { ProcessedStock } from '../types.js';
 import { computeIndicators } from '../indicators/indicator-engine.js';
-import { detectWick } from '../indicators/wick-detector.js';
-import { scanPatterns } from '../patterns/pattern-scanner.js';
-import { runAudit, computeVerdict } from '../audit/skeptic-auditor.js';
-import { getCachedBars } from './history-cache.js';
+import { detectWick, scanPatterns, runAudit, computeVerdict } from '../indicators/analysis.js';
+import { getHistoricalBars, getLiveQuotes } from './fmp-provider.js';
 
-const METADATA: Record<string, { name: string; sector: string; strategy: string }> = {
+/** Metadata for default portfolio */
+export const PORTFOLIO_META: Record<string, { name: string; sector: string; strategy: string }> = {
   ADM:   { name: 'Archer-Daniels-Midland', sector: 'Consumer Staples',       strategy: 'Value'    },
   NVDA:  { name: 'NVIDIA Corporation',      sector: 'Technology',             strategy: 'Momentum' },
   GE:    { name: 'GE Aerospace',            sector: 'Industrials',            strategy: 'Growth'   },
@@ -18,69 +17,109 @@ const METADATA: Record<string, { name: string; sector: string; strategy: string 
   META:  { name: 'Meta Platforms',          sector: 'Technology',             strategy: 'Growth'   },
 };
 
-// Live prices fetched by index.ts and injected here before each broadcast
-const livePrices: Record<string, number> = {};
-
-export function setLivePrices(prices: Record<string, number>): void {
-  Object.assign(livePrices, prices);
-}
-
 const notifyPrefs: Record<string, boolean> = {};
 
-/** Full Skeptic's Engine pipeline for one ticker (async — uses real Yahoo data). */
-export async function processStock(ticker: string): Promise<ProcessedStock | null> {
-  const meta = METADATA[ticker.toUpperCase()];
-  if (!meta) return null;
+/**
+ * Process a single ticker through the full Skeptic's Engine.
+ * Uses cached history + fresh live quote from FMP.
+ */
+export async function processStock(
+  ticker: string,
+  liveQuotes?: Record<string, { price: number; change: number; changePercent: number; volume: number; avgVolume: number }>
+): Promise<ProcessedStock | null> {
+  try {
+    const meta = PORTFOLIO_META[ticker.toUpperCase()];
+    const bars = await getHistoricalBars(ticker, 220);
 
-  const livePrice = livePrices[ticker.toUpperCase()];
-  const bars: OhlcvBar[] = await getCachedBars(ticker.toUpperCase(), 220, livePrice);
-  if (bars.length < 2) return null;
+    if (bars.length < 50) {
+      console.warn(`[processStock] Not enough bars for ${ticker}: ${bars.length}`);
+      return null;
+    }
 
-  const last        = bars[bars.length - 1];
-  const indicators  = computeIndicators(bars);
-  const wick        = detectWick(bars);
-  const pattern     = scanPatterns(bars);
-  const audit       = runAudit(indicators, last.volume, last.avgVolume5d);
+    // Use live quote if available, otherwise use last bar
+    const live = liveQuotes?.[ticker];
+    const lastBar = bars[bars.length - 1];
+    const price = live?.price ?? lastBar.close;
+    const change = live?.change ?? 0;
+    const changePercent = live?.changePercent ?? 0;
+    const volume = live?.volume ?? lastBar.volume;
+    const avgVolume = live?.avgVolume ?? lastBar.avgVolume5d;
 
-  // Action levels
-  const buyTarget = parseFloat((indicators.sma50 * 0.7 + last.low * 0.3).toFixed(2));
-  const stop      = parseFloat((last.low - indicators.atr14).toFixed(2));
-  const floor     = pattern.hasDoubleBottom && pattern.patternLevel != null
-    ? pattern.patternLevel
-    : parseFloat((indicators.sma200 * 0.92).toFixed(2));
+    // Update last bar with live price for indicator accuracy
+    const enrichedBars = [...bars.slice(0, -1), { ...lastBar, close: price }];
 
-  const { type: verdictType, text: verdict } = computeVerdict(
-    indicators, audit, wick, pattern, buyTarget, last.close
+    const indicators = computeIndicators(enrichedBars);
+    const wick = detectWick(enrichedBars);
+    const pattern = scanPatterns(enrichedBars);
+    const audit = runAudit(indicators, volume, avgVolume);
+
+    // Action levels
+    const buyTarget = parseFloat((indicators.sma50 * 0.7 + lastBar.low * 0.3).toFixed(2));
+    const stop = parseFloat((lastBar.low - indicators.atr14).toFixed(2));
+    const floor = pattern.hasDoubleBottom && pattern.patternLevel != null
+      ? pattern.patternLevel
+      : parseFloat((indicators.sma200 * 0.92).toFixed(2));
+
+    const { type: verdictType, text: verdict } = computeVerdict(
+      indicators, audit, wick, pattern, buyTarget, price
+    );
+
+    console.log(`[processStock] ${ticker} price=${price} rsi=${indicators.rsi14} verdict=${verdictType}`);
+
+    return {
+      ticker: ticker.toUpperCase(),
+      name: meta?.name ?? ticker,
+      sector: meta?.sector ?? 'Unknown',
+      strategy: meta?.strategy ?? 'Unknown',
+      price: parseFloat(price.toFixed(2)),
+      change: parseFloat(change.toFixed(2)),
+      changePercent: parseFloat(changePercent.toFixed(2)),
+      buyTarget,
+      stop,
+      floor,
+      verdict,
+      verdictType,
+      notifyEnabled: notifyPrefs[ticker] ?? false,
+      indicators,
+      wick,
+      audit,
+      pattern,
+      lastUpdated: new Date().toISOString(),
+    };
+  } catch (e) {
+    console.error(`[processStock] Error for ${ticker}:`, e);
+    return null;
+  }
+}
+
+/**
+ * Process all tickers in portfolio using a single batch live quote request.
+ * This is the main function called every minute.
+ */
+export async function processBatch(tickers: string[]): Promise<ProcessedStock[]> {
+  // Single batch request for all live quotes
+  const rawQuotes = await getLiveQuotes(tickers);
+
+  // Map to simplified format
+  const liveQuotes: Record<string, { price: number; change: number; changePercent: number; volume: number; avgVolume: number }> = {};
+  Object.entries(rawQuotes).forEach(([ticker, q]) => {
+    liveQuotes[ticker] = {
+      price: q.price,
+      change: q.change,
+      changePercent: q.changesPercentage,
+      volume: q.volume,
+      avgVolume: q.avgVolume,
+    };
+  });
+
+  // Process all tickers in parallel (history is cached)
+  const results = await Promise.all(
+    tickers.map((t) => processStock(t, liveQuotes))
   );
 
-  const prevClose     = bars[bars.length - 2].close;
-  const change        = parseFloat((last.close - prevClose).toFixed(2));
-  const changePercent = parseFloat(((change / prevClose) * 100).toFixed(2));
-
-  return {
-    ticker: ticker.toUpperCase(),
-    name: meta.name,
-    sector: meta.sector,
-    strategy: meta.strategy,
-    price: last.close,
-    change,
-    changePercent,
-    buyTarget,
-    stop,
-    floor,
-    verdict,
-    verdictType,
-    notifyEnabled: notifyPrefs[ticker.toUpperCase()] ?? false,
-    indicators,
-    wick,
-    audit,
-    pattern,
-    lastUpdated: new Date().toISOString(),
-  };
+  return results.filter((s): s is ProcessedStock => s !== null);
 }
 
-export function setNotify(ticker: string, enabled: boolean) {
+export function setNotify(ticker: string, enabled: boolean): void {
   notifyPrefs[ticker.toUpperCase()] = enabled;
 }
-
-export { METADATA };

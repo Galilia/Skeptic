@@ -1,64 +1,78 @@
-# Skeptic's Terminal — Node.js Backend
+# Skeptic's Terminal — Backend for Fly.io
 
-Полный порт C# бэкенда на Node.js + TypeScript.
-Деплоится на Vercel, Railway, Render — всё что угодно.
+Node.js + Socket.io бэкенд с реальными данными от FMP.
 
-## Запуск локально
+## Быстрый старт
 
 ```bash
 npm install
 npm run dev
-# http://localhost:5000
+# http://localhost:8080
 ```
 
-## Деплой на Vercel
+## Деплой на Fly.io
 
 ```bash
-# В папке skeptics-backend-node:
-vercel
+# 1. Установи Fly CLI
+curl -L https://fly.io/install.sh | sh
+
+# 2. Войди в аккаунт
+fly auth login
+
+# 3. Создай приложение (один раз)
+fly launch --name skeptics-terminal-backend --region iad
+
+# 4. Добавь секреты
+fly secrets set FMP_API_KEY=твой_ключ
+fly secrets set FRONTEND_URL=https://skeptic-six.vercel.app
+
+# 5. Задеплой
+fly deploy
 ```
 
-Или через GitHub → Vercel dashboard → New Project → выбери папку `skeptics-backend-node`.
+## После деплоя
+
+Обнови на фронте переменную:
+```
+VITE_API_URL = https://skeptics-terminal-backend.fly.dev
+```
 
 ## Переменные окружения
 
 | Переменная | Описание | По умолчанию |
 |---|---|---|
-| `PORT` | Порт сервера | `5000` |
-| `FRONTEND_URL` | URL фронтенда для CORS | — |
+| `FMP_API_KEY` | Ключ от financialmodelingprep.com | — |
+| `FRONTEND_URL` | URL фронтенда для CORS | `*` |
+| `PORT` | Порт сервера | `8080` |
 | `UPDATE_INTERVAL_MS` | Интервал обновления данных | `60000` |
 
 ## API
 
 | Метод | URL | Описание |
 |---|---|---|
-| GET | `/snapshot` | Все акции (первоначальная загрузка) |
+| GET | `/health` | Статус сервера |
+| GET | `/snapshot` | Все акции (для polling) |
 | GET | `/tickers` | Список тикеров |
 | POST | `/tickers` | Добавить тикер |
 | DELETE | `/tickers/:ticker` | Удалить тикер |
 | PATCH | `/tickers/:ticker/notify` | Включить алерт |
-| GET | `/health` | Проверка статуса |
 
-## WebSocket (Socket.io)
+## Socket.io события
 
-Путь: `/stockHub` (совместим с фронтендом)
+Путь: `/stockHub`
 
-События от сервера:
-- `BatchStockUpdate` — массив всех акций каждую минуту
+От сервера:
+- `BatchStockUpdate` — все акции каждую минуту
 - `StockUpdate` — одна акция
 - `PriceAlert` — алерт когда цена ≤ buyTarget
 
-## Структура
+От клиента:
+- `SubscribeToTicker` — подписаться на алерты тикера
+- `UnsubscribeFromTicker` — отписаться
 
-```
-src/
-├── index.ts                    ← Express + Socket.io сервер
-├── types.ts                    ← Все TypeScript типы
-├── routes/portfolio.ts         ← REST эндпоинты
-├── services/stock-processor.ts ← Оркестратор всех движков
-├── indicators/
-│   ├── indicator-engine.ts     ← SMA, RSI, ATR
-│   └── wick-detector.ts        ← Ptil логика
-├── patterns/pattern-scanner.ts ← Double Bottom/Top O(n)
-└── audit/skeptic-auditor.ts    ← Аудит + Вердикт
-```
+## Что кэшируется
+
+| Данные | TTL | Зачем |
+|---|---|---|
+| История (220 дней OHLCV) | 24 часа | Дорогой запрос, данные не меняются |
+| Live quotes (batch) | 1 минута | Обновляется каждую минуту |

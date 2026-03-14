@@ -1,5 +1,15 @@
 export type VerdictType = 'BUY' | 'ACCUMULATE' | 'WAIT' | 'AVOID' | 'DANGER';
 
+export interface OhlcvBar {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  avgVolume5d: number;
+}
+
 export interface StockIndicators {
   sma50: number;
   sma200: number;
@@ -47,14 +57,4 @@ export interface ProcessedStock {
   audit: SkepticsAudit;
   pattern: PatternDetection;
   lastUpdated: string;
-}
-
-export interface OhlcvBar {
-  date: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-  avgVolume5d: number;
 }
