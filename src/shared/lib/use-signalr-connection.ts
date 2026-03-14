@@ -1,25 +1,27 @@
 import { useEffect, useRef } from 'react';
+import { io, type Socket } from 'socket.io-client';
 import type { ProcessedStock } from '@/entities/stock';
 import { getMockStocks, getMockStockUpdate } from '@/entities/stock';
 import { useTerminalStore } from '@/shared/model/terminal-store';
 
-const DEMO_MODE = true; // Set false when real .NET backend is available
+const DEMO_MODE = false; // Set false when real backend is available
 
 /**
- * Manages the SignalR connection lifecycle.
+ * Manages the Socket.io connection lifecycle.
  * In demo mode, simulates a real-time stream using setInterval.
- * In production mode, connects to /stockHub and subscribes to "StockUpdate" events.
+ * In production mode, connects to /stockHub and subscribes to events.
  */
 export function useSignalRConnection() {
   const { setStocks, updateStock, setConnected, setLoading, addAlert } =
     useTerminalStore();
-  const connectionRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
     if (DEMO_MODE) {
       initDemoMode();
     } else {
-      initSignalR();
+      initSocketIO();
     }
     return () => cleanup();
   }, []);
@@ -34,7 +36,7 @@ export function useSignalRConnection() {
     }, 800);
 
     // Simulate 1-minute interval updates (using 5s in demo for visible activity)
-    connectionRef.current = setInterval(() => {
+    intervalRef.current = setInterval(() => {
       const stocks = getMockStocks();
       stocks.forEach((s) => {
         const updated = getMockStockUpdate(s.ticker);
@@ -55,25 +57,29 @@ export function useSignalRConnection() {
     }, 5000);
   }
 
-  async function initSignalR() {
+  function initSocketIO() {
     try {
-      // Dynamic import avoids bundling SignalR when in demo mode
-      const { HubConnectionBuilder, LogLevel } = await import('@microsoft/signalr');
-      const connection = new HubConnectionBuilder()
-        .withUrl('/stockHub')
-        .withAutomaticReconnect()
-        .configureLogging(LogLevel.Warning)
-        .build();
+      const socket = io(`${import.meta.env.VITE_API_URL}/stockHub`, {
+        transports: ['websocket'],
+        reconnection: true,
+      });
+      socketRef.current = socket;
 
-      connection.on('StockUpdate', (stock: ProcessedStock) => {
-        updateStock(stock);
+      socket.on('connect', () => {
+        setConnected(true);
+        setLoading(false);
       });
 
-      connection.on('BatchStockUpdate', (stocks: ProcessedStock[]) => {
+      socket.on('disconnect', () => setConnected(false));
+
+      socket.on('reconnect', () => setConnected(true));
+      socket.on('reconnect_attempt', () => setConnected(false));
+
+      socket.on('BatchStockUpdate', (stocks: ProcessedStock[]) => {
         stocks.forEach(updateStock);
       });
 
-      connection.on('PriceAlert', (ticker: string, price: number, target: number) => {
+      socket.on('PriceAlert', (ticker: string, price: number, target: number) => {
         addAlert({
           id: `${ticker}-${Date.now()}`,
           ticker,
@@ -83,23 +89,20 @@ export function useSignalRConnection() {
         });
       });
 
-      connection.onreconnecting(() => setConnected(false));
-      connection.onreconnected(() => setConnected(true));
-      connection.onclose(() => setConnected(false));
-
       setLoading(true);
-      await connection.start();
-      setConnected(true);
-      setLoading(false);
     } catch (err) {
-      console.error('[SignalR] Connection failed, falling back to demo mode', err);
+      console.error('[Socket.io] Connection failed, falling back to demo mode', err);
       initDemoMode();
     }
   }
 
   function cleanup() {
-    if (connectionRef.current) {
-      clearInterval(connectionRef.current);
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+    }
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+      socketRef.current = null;
     }
   }
 }
