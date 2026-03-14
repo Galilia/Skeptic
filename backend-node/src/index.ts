@@ -8,12 +8,11 @@ import { getCachedBars, clearHistoryCache } from './services/history-cache.js';
 const app = express();
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
-const ALLOWED_ORIGINS = [
-  'http://localhost:5173',
-  process.env.FRONTEND_URL ?? '',
-].filter(Boolean);
-
-app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
 app.use(express.json());
 
 // ── REST routes ───────────────────────────────────────────────────────────────
