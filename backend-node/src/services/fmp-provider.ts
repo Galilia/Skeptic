@@ -31,6 +31,11 @@ interface FmpQuote {
   previousClose: number;
 }
 
+interface FmpHistoricalResponse {
+  historical?: FmpHistoricalBar[];
+  "Error Message"?: string; 
+}
+
 /**
  * Fetch historical OHLCV bars for a single ticker.
  * Cached for 24 hours — only refreshes once per day.
@@ -49,10 +54,15 @@ export async function getHistoricalBars(
   console.log(`[FMP] Fetching history for ${ticker}`);
   const url = `${BASE}/historical-price-full/${ticker}?timeseries=${days}&apikey=${API_KEY}`;
   const res = await fetch(url);
-  const json = await res.json() as { historical?: FmpHistoricalBar[] };
+  const json = (await res.json()) as FmpHistoricalResponse;
 
-  if (!json.historical?.length) {
-    console.warn(`[FMP] No history for ${ticker}`);
+  if (json[`Error Message`]) {
+    console.error(`[FMP ERROR] ${ticker}: ${json["Error Message"]}`);
+    return [];
+  }
+
+if (!json.historical || json.historical.length === 0) {
+    console.warn(`[FMP] No history for ${ticker}. Raw response:`, JSON.stringify(json));
     return [];
   }
 
