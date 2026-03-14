@@ -1,41 +1,29 @@
-import { default as yahooFinance } from 'yahoo-finance2';
 import type { OhlcvBar } from '../types.js';
 
-export async function getHistoricalBars(
-  ticker: string,
-  days: number
-): Promise<OhlcvBar[]> {
-  const end = new Date();
-  const start = new Date();
-  start.setDate(start.getDate() - days);
+const API_KEY = process.env.POLYGON_API_KEY ?? '';
+const BASE = 'https://api.polygon.io';
 
-  const rows = await yahooFinance.historical(ticker, {
-    period1: start.toISOString().slice(0, 10),
-    period2: end.toISOString().slice(0, 10),
-    interval: '1d',
-  });
-
-  return rows.map((r) => ({
-    date: r.date.toISOString().slice(0, 10),
-    open: r.open ?? r.close,
-    high: r.high ?? r.close,
-    low: r.low ?? r.close,
-    close: r.close,
-    volume: r.volume ?? 0,
-    avgVolume5d: r.volume ?? 0,
+export async function getHistoricalBars(ticker: string, days: number): Promise<OhlcvBar[]> {
+  const to = new Date().toISOString().slice(0, 10);
+  const from = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const url = `${BASE}/v2/aggs/ticker/${ticker}/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=300&apiKey=${API_KEY}`;
+  const res = await fetch(url);
+  const json = await res.json();
+  return (json.results ?? []).map((r: any) => ({
+    date: new Date(r.t).toISOString().slice(0, 10),
+    open: r.o, high: r.h, low: r.l, close: r.c,
+    volume: r.v, avgVolume5d: r.v,
   }));
 }
 
-export async function getLiveQuotes(
-  tickers: string[]
-): Promise<Record<string, number>> {
+export async function getLiveQuotes(tickers: string[]): Promise<Record<string, number>> {
+  const list = tickers.join(',');
+  const url = `${BASE}/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${list}&apiKey=${API_KEY}`;
+  const res = await fetch(url);
+  const json = await res.json();
   const result: Record<string, number> = {};
-  const quotes = await yahooFinance.quote(tickers);
-  const arr = Array.isArray(quotes) ? quotes : [quotes];
-  arr.forEach((q) => {
-    if (q?.symbol && q?.regularMarketPrice) {
-      result[q.symbol] = q.regularMarketPrice;
-    }
+  (json.tickers ?? []).forEach((t: any) => {
+    result[t.ticker] = t.day?.c ?? t.prevDay?.c ?? 0;
   });
   return result;
 }
