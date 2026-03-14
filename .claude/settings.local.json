@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"Z:/Coding/Projects/skeptics-terminal\" && npm run build 2>&1)",
+      "Bash(cd \"Z:/Coding/Projects/skeptics-terminal\" && npm install framer-motion 2>&1 | tail -5)",
+      "Bash(cd:*)",
+      "Bash(ls:*)"
+    ]
+  }
+}
