@@ -32,7 +32,24 @@ router.patch('/tickers/:ticker/notify', (req, res) => {
 });
 
 /** GET /snapshot — initial load */
-router.get('/snapshot', (_req, res) => {
-  const stocks = portfolio.map(t => processStock(t)).filter(Boolean);
-  res.json(stocks);
+router.get('/snapshot', async (_req, res) => {
+  try {
+    console.log('[snapshot] portfolio:', portfolio);
+    const results = [];
+    for (const ticker of portfolio) {
+      try {
+        const stock = await processStock(ticker);
+        console.log('[snapshot]', ticker, ':', stock ? 'OK' : 'NULL',
+          stock ? 'price=' + stock.price : '');
+        if (stock && stock.ticker) results.push(stock);
+      } catch (e) {
+        console.error('[snapshot] error for', ticker, e);
+      }
+    }
+    console.log('[snapshot] returning', results.length, 'stocks');
+    res.json(results);
+  } catch (e) {
+    console.error('[snapshot] fatal error:', e);
+    res.status(500).json({ error: String(e) });
+  }
 });
