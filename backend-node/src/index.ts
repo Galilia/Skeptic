@@ -3,7 +3,9 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import { router } from './routes/portfolio.js';
-import { processStock, METADATA } from './services/stock-processor.js';
+import { processStock, setLivePrices, METADATA } from './services/stock-processor.js';
+import { getLiveQuotes } from './services/yahoo-provider.js';
+import { getCachedBars, clearHistoryCache } from './services/history-cache.js';
 
 const app    = express();
 const server = createServer(app);
@@ -22,10 +24,10 @@ app.use('/api/v1', router);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
 
-// ── Socket.io (replaces SignalR) ──────────────────────────────────────────────
+// ── Socket.io ─────────────────────────────────────────────────────────────────
 const io = new Server(server, {
   cors: { origin: ALLOWED_ORIGINS, credentials: true },
-  path: '/stockHub',          // same path as SignalR so frontend config unchanged
+  path: '/stockHub',
   transports: ['websocket', 'polling'],
 });
 
@@ -45,18 +47,15 @@ io.on('connection', (socket) => {
   });
 });
 
-// ── 1-minute broadcast loop ───────────────────────────────────────────────────
-const INTERVAL_MS = 60_000; // 1 minute in production
-const DEV_INTERVAL = parseInt(process.env.UPDATE_INTERVAL_MS ?? '0') || INTERVAL_MS;
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const TICKERS = Object.keys(METADATA);
 
-setInterval(() => {
-  const tickers = Object.keys(METADATA);
-  const stocks  = tickers.map(t => processStock(t)).filter(Boolean);
+async function broadcastStocks(): Promise<void> {
+  const results = await Promise.all(TICKERS.map(t => processStock(t)));
+  const stocks  = results.filter(Boolean) as Awaited<ReturnType<typeof processStock>>[];
 
-  // Push batch to all clients
   io.emit('BatchStockUpdate', stocks);
 
-  // Fire price alerts per ticker group
   stocks.forEach(s => {
     if (s && s.notifyEnabled && s.price <= s.buyTarget) {
       io.to(s.ticker).emit('PriceAlert', s.ticker, s.price, s.buyTarget);
@@ -65,12 +64,48 @@ setInterval(() => {
   });
 
   console.log(`[${new Date().toISOString()}] Pushed ${stocks.length} stocks`);
-}, DEV_INTERVAL);
+}
+
+async function refreshLivePrices(): Promise<void> {
+  try {
+    const prices = await getLiveQuotes(TICKERS);
+    setLivePrices(prices);
+    console.log(`[Yahoo] Live prices updated for ${Object.keys(prices).length} tickers`);
+  } catch (err) {
+    console.error('[Yahoo] Failed to fetch live prices:', err);
+  }
+}
+
+// ── Startup: preload history + initial live prices ────────────────────────────
+async function startup(): Promise<void> {
+  console.log('[Startup] Preloading history cache…');
+  await Promise.all(TICKERS.map(t => getCachedBars(t, 220)));
+  console.log('[Startup] History preloaded');
+
+  await refreshLivePrices();
+  await broadcastStocks();
+}
+
+// ── Scheduled tasks ───────────────────────────────────────────────────────────
+const LIVE_INTERVAL_MS = parseInt(process.env.UPDATE_INTERVAL_MS ?? '0') || 5 * 60_000; // 5 minutes
+const CACHE_TTL_MS     = 24 * 60 * 60 * 1000; // 24 hours
+
+// Every 5 minutes: refresh live prices and broadcast
+setInterval(async () => {
+  await refreshLivePrices();
+  await broadcastStocks();
+}, LIVE_INTERVAL_MS);
+
+// Every 24 hours: clear history cache so fresh OHLCV data is fetched
+setInterval(() => {
+  clearHistoryCache();
+}, CACHE_TTL_MS);
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT ?? '5000');
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`🚀 Skeptic's Terminal backend running on port ${PORT}`);
   console.log(`   REST: http://localhost:${PORT}/api/v1`);
   console.log(`   WS:   ws://localhost:${PORT}/stockHub`);
+  await startup();
 });
