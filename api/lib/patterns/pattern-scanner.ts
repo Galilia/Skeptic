@@ -1,4 +1,4 @@
-import type { OhlcvBar, PatternDetection } from '../types';
+import type { OhlcvBar, PatternDetection } from '../types.js';
 
 const SCAN_DAYS = 60;
 const VARIANCE = 0.02;

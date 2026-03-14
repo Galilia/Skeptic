@@ -1,4 +1,4 @@
-import type { StockIndicators, WickAnalysis, PatternDetection, SkepticsAudit, VerdictType } from '../types';
+import type { StockIndicators, WickAnalysis, PatternDetection, SkepticsAudit, VerdictType } from '../types.js';
 
 /** Reasons NOT to buy */
 export function runAudit(

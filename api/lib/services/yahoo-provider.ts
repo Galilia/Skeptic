@@ -1,4 +1,4 @@
-import type { OhlcvBar } from '../types';
+import type { OhlcvBar } from '../types.js';
 
 const API_KEY = process.env.FMP_API_KEY ?? '';
 const BASE = 'https://financialmodelingprep.com/api/v3';

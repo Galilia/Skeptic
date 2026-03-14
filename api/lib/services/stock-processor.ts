@@ -1,9 +1,9 @@
-import type { OhlcvBar, ProcessedStock } from '../types';
-import { computeIndicators } from '../indicators/indicator-engine';
-import { detectWick } from '../indicators/wick-detector';
-import { scanPatterns } from '../patterns/pattern-scanner';
-import { runAudit, computeVerdict } from '../audit/skeptic-auditor';
-import { getCachedBars } from './history-cache';
+import type { OhlcvBar, ProcessedStock } from '../types.js';
+import { computeIndicators } from '../indicators/indicator-engine.js';
+import { detectWick } from '../indicators/wick-detector.js';
+import { scanPatterns } from '../patterns/pattern-scanner.js';
+import { runAudit, computeVerdict } from '../audit/skeptic-auditor.js';
+import { getCachedBars } from './history-cache.js';
 
 const METADATA: Record<string, { name: string; sector: string; strategy: string }> = {
   ADM:   { name: 'Archer-Daniels-Midland', sector: 'Consumer Staples',       strategy: 'Value'    },

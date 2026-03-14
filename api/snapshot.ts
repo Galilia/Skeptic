@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { processStock } from './lib/services/stock-processor';
+import { processStock } from './lib/services/stock-processor.js';
 
 const TICKERS = ['ADM', 'NVDA', 'GE', 'GOOGL', 'INTC', 'MSFT', 'JPM', 'XOM', 'TSLA', 'META'];
 

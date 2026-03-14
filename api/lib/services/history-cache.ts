@@ -1,5 +1,5 @@
-import type { OhlcvBar } from '../types';
-import { getHistoricalBars } from './yahoo-provider';
+import type { OhlcvBar } from '../types.js';
+import { getHistoricalBars } from './yahoo-provider.js';
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 

@@ -1,4 +1,4 @@
-import type { OhlcvBar, StockIndicators } from '../types';
+import type { OhlcvBar, StockIndicators } from '../types.js';
 
 /** Simple Moving Average over last N closes */
 function sma(closes: number[], period: number): number {

@@ -1,4 +1,4 @@
-import type { OhlcvBar, WickAnalysis } from '../types';
+import type { OhlcvBar, WickAnalysis } from '../types.js';
 
 const LOOKBACK = 20;
 
