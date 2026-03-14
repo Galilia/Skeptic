@@ -2,7 +2,6 @@ import yahooFinance from 'yahoo-finance2';
 import NodeCache from 'node-cache';
 import type { OhlcvBar } from '../types.js';
 
-
 const historyCache = new NodeCache({ stdTTL: 86400 });
 const quoteCache = new NodeCache({ stdTTL: 30 });
 
@@ -11,23 +10,25 @@ export async function getHistoricalBars(ticker: string, days = 220): Promise<Ohl
   const cached = historyCache.get<OhlcvBar[]>(cacheKey);
   if (cached) return cached;
 
-  try {
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
+  console.log(`[Yahoo] Fetching history for ${ticker}`);
+  
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - days);
 
-    // Yahoo сам понимает даты и интервалы
+  try {
+    // Явно указываем тип результата для TS
     const result = await yahooFinance.historical(ticker, {
       period1: startDate,
       interval: '1d'
-    });
+    }) as any[];
 
     if (!result || result.length === 0) {
-      console.warn(`[Yahoo] No historical data for ${ticker}`);
+      console.warn(`[Yahoo] No data for ${ticker}`);
       return [];
     }
 
-    const bars: OhlcvBar[] = result.map((b: any) => ({
-      date: b.date.toISOString().split('T')[0],
+    const bars: OhlcvBar[] = result.map((b) => ({
+      date: b.date instanceof Date ? b.date.toISOString().split('T')[0] : String(b.date),
       open: b.open,
       high: b.high,
       low: b.low,
@@ -37,7 +38,6 @@ export async function getHistoricalBars(ticker: string, days = 220): Promise<Ohl
     }));
 
     historyCache.set(cacheKey, bars);
-    console.log(`[Yahoo] Loaded ${bars.length} bars for ${ticker}`);
     return bars;
   } catch (error) {
     console.error(`[Yahoo History Error] ${ticker}:`, error);
@@ -51,20 +51,21 @@ export async function getLiveQuotes(tickers: string[]): Promise<Record<string, a
   if (cached) return cached;
 
   try {
-    // Делаем один запрос на все тикеры — O(1) по сетевым вызовам
-    const results = await yahooFinance.quote(tickers);
+    const results = await yahooFinance.quote(tickers) as any[];
     const mapped: Record<string, any> = {};
 
-    results.forEach((q: any) => {
-      mapped[q.symbol] = {
-        symbol: q.symbol,
-        price: q.regularMarketPrice,
-        change: q.regularMarketChange,
-        changesPercentage: q.regularMarketChangePercent,
-        volume: q.regularMarketVolume,
-        avgVolume: q.averageDailyVolume3Month,
-      };
-    });
+    if (Array.isArray(results)) {
+      results.forEach((q) => {
+        mapped[q.symbol] = {
+          symbol: q.symbol,
+          price: q.regularMarketPrice,
+          change: q.regularMarketChange,
+          changesPercentage: q.regularMarketChangePercent,
+          volume: q.regularMarketVolume,
+          avgVolume: q.averageDailyVolume3Month,
+        };
+      });
+    }
 
     quoteCache.set(cacheKey, mapped);
     return mapped;
