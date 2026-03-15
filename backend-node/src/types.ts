@@ -7,6 +7,22 @@ export interface FibLevel {
   label: string;
 }
 
+/** A support or resistance price level with touch count */
+export interface SRLevel {
+  price: number;
+  touches: number;
+}
+
+/** Nearest Fibonacci retracement level relative to current price */
+export interface NearFibLevel {
+  label: string;
+  price: number;
+  /** % distance from current price to this level */
+  distance: number;
+  /** true when distance ≤ 1.5% */
+  isNear: boolean;
+}
+
 export interface OhlcvBar {
   date: string;
   open: number;
@@ -83,15 +99,17 @@ export interface ProcessedStock {
   trendAligned: boolean;
   nearBuyTarget: boolean;
   nearStop: boolean;
-  supportLevels: number[];
-  resistanceLevels: number[];
+  supportLevels: SRLevel[];
+  resistanceLevels: SRLevel[];
   fibLevels: FibLevel[];
-  nearestFibLabel: string | null;
+  /** Nearest fib level with distance and proximity flag */
+  nearFibLevel: NearFibLevel | null;
   riskRewardRatio: number;
 
   // Sector trend (from ETF daily change)
   sectorChangePercent: number;
   sectorTrend: TrendDirection;
+  sectorEtfTicker: string;
 
   // Analyst consensus from Yahoo financialData
   analystConsensus: string;
@@ -99,4 +117,7 @@ export interface ProcessedStock {
 
   // Dynamic ATR multiplier for hard stop
   stopAtrMultiplier: number;
+
+  // Pre-computed red flags for the audit overlay
+  redFlags: string[];
 }

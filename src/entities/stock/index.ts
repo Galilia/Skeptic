@@ -10,6 +10,8 @@ export type {
   SignalStrength,
   TrendDirection,
   FibLevel,
+  SRLevel,
+  NearFibLevel,
 } from './model/types/stock';
 
 export {

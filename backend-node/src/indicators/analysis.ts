@@ -1,7 +1,7 @@
 import type {
   OhlcvBar, WickAnalysis, PatternDetection,
   StockIndicators, SkepticsAudit, VerdictType,
-  TrendDirection, FibLevel,
+  TrendDirection, FibLevel, SRLevel, NearFibLevel,
 } from '../types.js';
 
 // Local SMA helper — avoids circular dependency with indicator-engine
@@ -159,10 +159,11 @@ export function computeFibLevels(bars: OhlcvBar[], lookback = 60): FibLevel[] {
 }
 
 /**
- * Return the label of the Fibonacci level nearest to `currentPrice`,
- * or null if the nearest is more than 2% away.
+ * Find the nearest Fibonacci level to `currentPrice`.
+ * Returns full NearFibLevel object including % distance and proximity flag (≤1.5%).
+ * Returns null if fibLevels is empty.
  */
-export function findNearestFibLabel(fibLevels: FibLevel[], currentPrice: number): string | null {
+export function computeNearFibLevel(fibLevels: FibLevel[], currentPrice: number): NearFibLevel | null {
   if (fibLevels.length === 0) return null;
   let nearest = fibLevels[0];
   let minDist = Math.abs(currentPrice - fibLevels[0].price);
@@ -170,8 +171,13 @@ export function findNearestFibLabel(fibLevels: FibLevel[], currentPrice: number)
     const d = Math.abs(currentPrice - f.price);
     if (d < minDist) { minDist = d; nearest = f; }
   }
-  if (minDist / currentPrice * 100 > 2) return null;
-  return nearest.label;
+  const distance = parseFloat((minDist / currentPrice * 100).toFixed(2));
+  return {
+    label: nearest.label,
+    price: nearest.price,
+    distance,
+    isNear: distance <= 1.5,
+  };
 }
 
 // ── Support / Resistance ──────────────────────────────────────────────────────
@@ -179,13 +185,14 @@ export function findNearestFibLabel(fibLevels: FibLevel[], currentPrice: number)
 /**
  * Bucket OHLC prices into 1%-wide buckets over the last `lookback` bars.
  * Buckets touched ≥3 times are treated as S/R levels.
- * Returns the top 3 support levels (below price) and top 3 resistance levels (above).
+ * Returns the top 3 support levels (below price) and top 3 resistance levels (above),
+ * each with their touch count for strength indication.
  * Time complexity: O(n log n) — O(n) bucket fill + O(k log k) sort where k = unique bucket count.
  */
 export function computeSupportResistance(
   bars: OhlcvBar[],
   lookback = 120
-): { support: number[]; resistance: number[] } {
+): { support: SRLevel[]; resistance: SRLevel[] } {
   const window = bars.slice(-lookback);
   if (window.length < 2) return { support: [], resistance: [] };
   const currentPrice = window[window.length - 1].close;
@@ -197,13 +204,13 @@ export function computeSupportResistance(
       buckets.set(key, (buckets.get(key) ?? 0) + 1);
     }
   }
-  const levels: number[] = [];
+  const levels: SRLevel[] = [];
   buckets.forEach((count, key) => {
-    if (count >= 3) levels.push(parseFloat((key * bucketSize).toFixed(2)));
+    if (count >= 3) levels.push({ price: parseFloat((key * bucketSize).toFixed(2)), touches: count });
   });
-  levels.sort((a, b) => a - b);
+  levels.sort((a, b) => a.price - b.price);
   return {
-    support:    levels.filter((p) => p < currentPrice).slice(-3),
-    resistance: levels.filter((p) => p > currentPrice).slice(0, 3),
+    support:    levels.filter((l) => l.price < currentPrice).slice(-3),
+    resistance: levels.filter((l) => l.price > currentPrice).slice(0, 3),
   };
 }

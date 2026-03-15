@@ -1,4 +1,5 @@
-import type { ProcessedStock, TrendDirection } from '../types.js';
+import type { ProcessedStock, TrendDirection, SRLevel, StockIndicators, PatternDetection } from '../types.js';
+import type { SkepticsAudit } from '../types.js';
 import { computeIndicators } from '../indicators/indicator-engine.js';
 import {
   detectWick,
@@ -7,7 +8,7 @@ import {
   computeVerdict,
   computeTrend,
   computeFibLevels,
-  findNearestFibLabel,
+  computeNearFibLevel,
   computeSupportResistance,
 } from '../indicators/analysis.js';
 import { getHistoricalBars, getLiveQuotes, getFearGreedIndex, getSectorEtfChange, getAnalystConsensus } from './fmp-provider.js';
@@ -27,6 +28,53 @@ export const PORTFOLIO_META: Record<string, { name: string; sector: string; stra
 };
 
 const notifyPrefs: Record<string, boolean> = {};
+
+/**
+ * Compute pre-filtered red flags for the audit overlay.
+ * All computation stays on the server — frontend only displays.
+ */
+function computeRedFlags(
+  indicators: StockIndicators,
+  audit: SkepticsAudit,
+  pattern: PatternDetection,
+  trendAligned: boolean,
+  resistanceLevels: SRLevel[],
+  price: number,
+  peRatio: number | null,
+  analystConsensus: string,
+): string[] {
+  const flags: string[] = [];
+
+  if (indicators.rsi14 > 70)
+    flags.push(`RSI ${indicators.rsi14.toFixed(1)} > 70 — Overbought`);
+  if (indicators.rsi14 < 30)
+    flags.push(`RSI ${indicators.rsi14.toFixed(1)} < 30 — Oversold (falling knife risk)`);
+  if (indicators.smaProximityPct > 12)
+    flags.push(`Price +${indicators.smaProximityPct.toFixed(1)}% above SMA50 — Overextended`);
+  if (audit.isWeakMomentum)
+    flags.push('Volume < 5-day avg — No conviction');
+  if (!trendAligned)
+    flags.push('Trend NOT aligned — Short vs Long conflict');
+
+  // Warn if nearest resistance is within 2% upside
+  if (resistanceLevels.length > 0) {
+    const nearest = resistanceLevels[0];
+    const upside = (nearest.price - price) / price * 100;
+    if (upside <= 2)
+      flags.push(`Near strong resistance ($${nearest.price.toFixed(2)}) — Limited upside`);
+  }
+
+  if (price < indicators.sma150 && price < indicators.sma200)
+    flags.push('Below SMA150 and SMA200 — Bearish structure');
+  if (pattern.hasDoubleTop)
+    flags.push('Double Top pattern — Distribution signal');
+  if (analystConsensus === 'Sell' || analystConsensus === 'Underperform')
+    flags.push(`Analyst consensus: ${analystConsensus}`);
+  if (peRatio !== null && peRatio > 40)
+    flags.push(`P/E ${peRatio.toFixed(1)} > 40 — Expensive valuation`);
+
+  return flags;
+}
 
 /**
  * Process a single ticker through the full Skeptic's Engine.
@@ -89,8 +137,8 @@ export async function processStock(
     const priceOnSma150 = Math.abs(price - indicators.sma150) / indicators.sma150 * 100 <= 1.5;
     const priceOnSma200 = Math.abs(price - indicators.sma200) / indicators.sma200 * 100 <= 1.5;
 
-    const fibLevels        = computeFibLevels(enrichedBars, 60);
-    const nearestFibLabel  = findNearestFibLabel(fibLevels, price);
+    const fibLevels   = computeFibLevels(enrichedBars, 60);
+    const nearFibLevel = computeNearFibLevel(fibLevels, price);
     const { support: supportLevels, resistance: resistanceLevels } =
       computeSupportResistance(enrichedBars, 120);
 
@@ -108,6 +156,11 @@ export async function processStock(
     const riskRewardRatio = (buyTarget - stop) > 0
       ? parseFloat(((indicators.atr14 * 2) / (buyTarget - stop)).toFixed(2))
       : 0;
+
+    const redFlags = computeRedFlags(
+      indicators, audit, pattern, trendAligned,
+      resistanceLevels, price, peRatio, analystData.consensus
+    );
 
     console.log(`[processStock] ${ticker} price=${price} rsi=${indicators.rsi14} verdict=${verdictType}`);
 
@@ -145,13 +198,15 @@ export async function processStock(
       supportLevels,
       resistanceLevels,
       fibLevels,
-      nearestFibLabel,
+      nearFibLevel,
       riskRewardRatio,
       sectorChangePercent: sectorData.changePercent,
       sectorTrend: sectorData.trend,
+      sectorEtfTicker: sectorData.etfTicker,
       analystConsensus: analystData.consensus,
       analystCount: analystData.count,
       stopAtrMultiplier,
+      redFlags,
     };
   } catch (e) {
     console.error(`[processStock] Error for ${ticker}:`, e);

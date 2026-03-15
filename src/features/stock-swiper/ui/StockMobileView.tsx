@@ -263,6 +263,18 @@ function KeySmaBadge({ priceOnSma200, priceOnSma150 }: { priceOnSma200: boolean;
   );
 }
 
+// ── Touch Dots ────────────────────────────────────────────────────────────────
+
+function TouchDots({ touches }: { touches: number }) {
+  const color = touches >= 6 ? '#00e676' : touches >= 4 ? '#00d4aa' : '#ffb300';
+  const bold  = touches >= 6;
+  return (
+    <span style={{ color, fontWeight: bold ? 700 : 400, fontSize: 9, letterSpacing: 1 }}>
+      {'●'.repeat(Math.min(touches, 6))}
+    </span>
+  );
+}
+
 // ── Resistance / Support Row ──────────────────────────────────────────────────
 
 function ResistanceSupportRow({ stock }: { stock: ProcessedStock }) {
@@ -271,10 +283,10 @@ function ResistanceSupportRow({ stock }: { stock: ProcessedStock }) {
   if (!nearestResistance && !nearestSupport) return null;
 
   const resPct = nearestResistance
-    ? ((nearestResistance - stock.price) / stock.price * 100).toFixed(1)
+    ? ((nearestResistance.price - stock.price) / stock.price * 100).toFixed(1)
     : null;
   const supPct = nearestSupport
-    ? ((stock.price - nearestSupport) / stock.price * 100).toFixed(1)
+    ? ((stock.price - nearestSupport.price) / stock.price * 100).toFixed(1)
     : null;
 
   return (
@@ -285,15 +297,16 @@ function ResistanceSupportRow({ stock }: { stock: ProcessedStock }) {
           background: 'rgba(239,83,80,0.07)', border: '1px solid rgba(239,83,80,0.25)',
         }}>
           <div style={{ fontSize: 8, color: '#4a5268', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 2, fontFamily: 'IBM Plex Sans, sans-serif' }}>
-            Ceiling
+            ⬆ Ceiling
           </div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12, color: '#ef5350', fontFamily: 'IBM Plex Mono, monospace', fontWeight: 600 }}>
-              ${nearestResistance.toFixed(2)}
+              ${nearestResistance.price.toFixed(2)}
             </span>
             <span style={{ fontSize: 9, color: '#ef535080', fontFamily: 'IBM Plex Mono, monospace' }}>
               +{resPct}%
             </span>
+            <TouchDots touches={nearestResistance.touches} />
           </div>
         </div>
       )}
@@ -303,15 +316,16 @@ function ResistanceSupportRow({ stock }: { stock: ProcessedStock }) {
           background: 'rgba(0,212,170,0.07)', border: '1px solid rgba(0,212,170,0.25)',
         }}>
           <div style={{ fontSize: 8, color: '#4a5268', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 2, fontFamily: 'IBM Plex Sans, sans-serif' }}>
-            Support
+            ⬇ Support
           </div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12, color: '#00d4aa', fontFamily: 'IBM Plex Mono, monospace', fontWeight: 600 }}>
-              ${nearestSupport.toFixed(2)}
+              ${nearestSupport.price.toFixed(2)}
             </span>
             <span style={{ fontSize: 9, color: '#00d4aa80', fontFamily: 'IBM Plex Mono, monospace' }}>
               -{supPct}%
             </span>
+            <TouchDots touches={nearestSupport.touches} />
           </div>
         </div>
       )}
@@ -323,18 +337,17 @@ function ResistanceSupportRow({ stock }: { stock: ProcessedStock }) {
 
 function PriceLadder({ stock }: { stock: ProcessedStock }) {
   const ind = stock.indicators;
-  type LadderRow = { label: string; price: number; color: string; isCurrent?: boolean; tag?: string };
+  // Chart shows only structural levels — no S/R (shown on main card)
+  type LadderRow = { label: string; price: number; color: string; isCurrent?: boolean };
   const rows: LadderRow[] = [
-    ...stock.resistanceLevels.map((p, i) => ({ label: `Resistance ${i + 1}`, price: p, color: '#ef5350', tag: 'R' })),
-    { label: 'SMA 200', price: ind.sma200, color: '#8a93a8' },
-    { label: 'SMA 150', price: ind.sma150, color: '#8a93a8' },
-    { label: 'SMA 50',  price: ind.sma50,  color: '#4fc3f7' },
-    { label: 'SMA 20',  price: ind.sma20,  color: '#7986cb' },
-    { label: '◆ Price', price: stock.price, color: '#e8eaf0', isCurrent: true },
-    { label: 'Buy Target', price: stock.buyTarget, color: '#00d4aa', tag: 'BUY' },
-    ...stock.supportLevels.map((p, i) => ({ label: `Support ${i + 1}`, price: p, color: '#00d4aa', tag: 'S' })),
-    { label: 'Hard Stop', price: stock.stop, color: '#ff7043', tag: 'STOP' },
-    { label: 'Floor', price: stock.floor, color: '#ef5350', tag: 'FLOOR' },
+    { label: 'SMA 200',    price: ind.sma200,       color: '#8a93a8' },
+    { label: 'SMA 150',    price: ind.sma150,       color: '#8a93a8' },
+    { label: 'SMA 50',     price: ind.sma50,        color: '#4fc3f7' },
+    { label: 'SMA 20',     price: ind.sma20,        color: '#7986cb' },
+    { label: '◆ Price',    price: stock.price,      color: '#e8eaf0', isCurrent: true },
+    { label: 'Buy Target', price: stock.buyTarget,  color: '#00d4aa' },
+    { label: 'Hard Stop',  price: stock.stop,       color: '#ff7043' },
+    { label: 'Floor',      price: stock.floor,      color: '#ef5350' },
   ].filter((r) => r.price > 0);
 
   // Sort descending by price
@@ -499,6 +512,29 @@ function AuditOverlay({
 
         {stock && ind && activeTab === 'audit' && (
           <>
+            {/* 🚩 Red Flags — at top, always shown */}
+            <AuditSection title="🚩 Reasons Not to Trade">
+              {stock.redFlags.length === 0 ? (
+                <div style={{ fontSize: 12, color: '#00d4aa', fontFamily: 'IBM Plex Sans, sans-serif' }}>
+                  ✅ No red flags — clean setup
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  {stock.redFlags.map((flag, i) => (
+                    <div key={i} style={{
+                      padding: '6px 10px', borderRadius: 6,
+                      background: 'rgba(229,57,53,0.15)',
+                      border: '1px solid rgba(229,57,53,0.3)',
+                      color: '#ef5350',
+                      fontSize: 11, fontFamily: 'IBM Plex Sans, sans-serif', lineHeight: 1.4,
+                    }}>
+                      ⚠ {flag}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </AuditSection>
+
             {/* Analyst consensus */}
             {stock.analystConsensus && stock.analystConsensus !== 'N/A' && (
               <AuditSection title="Analyst Consensus">
@@ -515,11 +551,11 @@ function AuditOverlay({
               </AuditSection>
             )}
 
-            {/* P/E ratio */}
+            {/* Valuation */}
             <AuditSection title="Valuation">
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <AuditStat label="P/E Ratio" value={stock.peRatio !== null ? stock.peRatio.toFixed(1) : 'N/A'} color={peColor} />
-                <AuditStat label="RSI 14"    value={ind.rsi14.toFixed(1)}   color={rsiColor} />
+                <AuditStat label="RSI 14"    value={ind.rsi14.toFixed(1)}       color={rsiColor} />
                 <AuditStat label="ATR 14"    value={`$${ind.atr14.toFixed(2)}`} color="#8a93a8" />
                 <AuditStat label="SMA Dist"  value={`${ind.smaProximityPct > 0 ? '+' : ''}${ind.smaProximityPct.toFixed(1)}%`} color={Math.abs(ind.smaProximityPct) > 12 ? '#ef5350' : '#8a93a8'} />
               </div>
@@ -533,7 +569,11 @@ function AuditOverlay({
                 <TrendBadge label="Aligned" trend={stock.trendAligned ? 'UP' : 'DOWN'} customLabel={stock.trendAligned ? 'YES' : 'NO'} />
               </div>
               <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-                <TrendBadge label={`Sector (${stock.sector.slice(0, 6)}..)`} trend={stock.sectorTrend} customLabel={`${stock.sectorChangePercent > 0 ? '+' : ''}${stock.sectorChangePercent.toFixed(1)}%`} />
+                <TrendBadge
+                  label={`${stock.sectorEtfTicker || stock.sector.slice(0, 4)}`}
+                  trend={stock.sectorTrend}
+                  customLabel={`${stock.sectorChangePercent > 0 ? '+' : ''}${stock.sectorChangePercent.toFixed(1)}%`}
+                />
               </div>
             </AuditSection>
 
@@ -551,51 +591,33 @@ function AuditOverlay({
               </AuditSection>
             )}
 
-            {/* Support & Resistance */}
-            {(stock.supportLevels.length > 0 || stock.resistanceLevels.length > 0) && (
-              <AuditSection title="Support / Resistance">
-                {stock.resistanceLevels.length > 0 && (
-                  <div style={{ marginBottom: 6 }}>
-                    <div style={{ fontSize: 9, color: '#4a5268', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4, fontFamily: 'IBM Plex Sans, sans-serif' }}>Resistance</div>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {stock.resistanceLevels.map((lvl) => (
-                        <span key={lvl} style={{ padding: '3px 9px', borderRadius: 12, border: '1px solid #ef535060', background: 'rgba(239,83,80,0.08)', color: '#ef5350', fontSize: 11, fontFamily: 'IBM Plex Mono, monospace' }}>
-                          ${lvl.toFixed(2)}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {stock.supportLevels.length > 0 && (
-                  <div>
-                    <div style={{ fontSize: 9, color: '#4a5268', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4, fontFamily: 'IBM Plex Sans, sans-serif' }}>Support</div>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {stock.supportLevels.map((lvl) => (
-                        <span key={lvl} style={{ padding: '3px 9px', borderRadius: 12, border: '1px solid #00d4aa60', background: 'rgba(0,212,170,0.08)', color: '#00d4aa', fontSize: 11, fontFamily: 'IBM Plex Mono, monospace' }}>
-                          ${lvl.toFixed(2)}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </AuditSection>
-            )}
-
-            {/* Fibonacci levels */}
+            {/* Fibonacci levels — S/R removed (shown on main card only) */}
             {stock.fibLevels.length > 0 && (
               <AuditSection title="Fibonacci Retracement">
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                   {stock.fibLevels.map((f) => {
-                    const isNearest = f.label === stock.nearestFibLabel;
+                    const isNearest = stock.nearFibLevel?.label === f.label;
                     const color = isNearest ? '#ffd700' : '#4a5268';
                     return (
-                      <div key={f.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div key={f.label} style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: isNearest ? '4px 6px' : '0',
+                        borderRadius: 4,
+                        background: isNearest ? 'rgba(255,215,0,0.08)' : 'transparent',
+                      }}>
                         <span style={{ fontSize: 11, color, fontFamily: 'IBM Plex Mono, monospace' }}>
                           {isNearest ? '▶ ' : '  '}{f.label}
                         </span>
-                        <span style={{ fontSize: 11, color, fontFamily: 'IBM Plex Mono, monospace', fontWeight: isNearest ? 600 : 400 }}>
-                          ${f.price.toFixed(2)}
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {isNearest && stock.nearFibLevel && (
+                            <span style={{ fontSize: 9, color: '#ffd70080', fontFamily: 'IBM Plex Sans, sans-serif' }}>
+                              ← you are here ({stock.nearFibLevel.distance.toFixed(1)}%)
+                            </span>
+                          )}
+                          <span style={{ fontSize: 11, color, fontFamily: 'IBM Plex Mono, monospace', fontWeight: isNearest ? 600 : 400 }}>
+                            ${f.price.toFixed(2)}
+                          </span>
+                        </div>
                       </div>
                     );
                   })}
@@ -606,23 +628,10 @@ function AuditOverlay({
             {/* Stop detail */}
             <AuditSection title="Stop Detail">
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <AuditStat label="Hard Stop"   value={`$${stock.stop.toFixed(2)}`}                 color="#ff7043" />
+                <AuditStat label="Hard Stop"  value={`$${stock.stop.toFixed(2)}`}                          color="#ff7043" />
                 <AuditStat label="ATR × Mult" value={`${ind.atr14.toFixed(2)} × ${stock.stopAtrMultiplier}x`} color="#8a93a8" />
               </div>
             </AuditSection>
-
-            {/* Warnings */}
-            {stock.audit.warnings.length > 0 && (
-              <AuditSection title="Warnings">
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                  {stock.audit.warnings.map((w, i) => (
-                    <div key={i} style={{ fontSize: 12, color: '#ff7043', fontFamily: 'IBM Plex Sans, sans-serif', lineHeight: 1.4 }}>
-                      ⚠ {w}
-                    </div>
-                  ))}
-                </div>
-              </AuditSection>
-            )}
           </>
         )}
       </div>
@@ -696,7 +705,7 @@ function FearGreedBar({ value, label }: { value: number; label: string }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2, width: 120 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
         <span style={{ fontSize: 9, color: fg, fontFamily: 'IBM Plex Sans, sans-serif', letterSpacing: '0.04em' }}>
-          {label}
+          {label} <span style={{ color: '#4a5268', fontSize: 8 }}>(Alt.me)</span>
         </span>
         <span style={{ fontSize: 9, color: fg, fontFamily: 'IBM Plex Mono, monospace', fontWeight: 700 }}>
           {value}
@@ -834,26 +843,34 @@ const StockCard = forwardRef<CardHandle, {
         </span>
       </div>
 
-      {/* Ticker + company header */}
-      <div style={{ textAlign: 'center', marginTop: 8 }}>
+      {/* Sector badge — absolute top-left: ETF ticker + arrow + % */}
+      <div style={{ position: 'absolute', top: 12, left: 12, pointerEvents: 'none' }}>
+        <span style={{
+          fontSize: 10,
+          fontFamily: 'IBM Plex Mono, monospace',
+          color: stock.sectorTrend === 'UP' ? '#00d4aa' : stock.sectorTrend === 'DOWN' ? '#ef5350' : '#ffb300',
+        }}>
+          {stock.sectorEtfTicker || stock.sector.slice(0, 4)}
+          {' '}
+          {stock.sectorTrend === 'UP' ? '↑' : stock.sectorTrend === 'DOWN' ? '↓' : '→'}
+          {stock.sectorChangePercent !== 0 && `${stock.sectorChangePercent > 0 ? '+' : ''}${stock.sectorChangePercent.toFixed(1)}%`}
+        </span>
+      </div>
+
+      {/* Change% — absolute top-right, leaves space for SAVE label */}
+      <div style={{ position: 'absolute', top: 12, right: 48, pointerEvents: 'none' }}>
+        <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'IBM Plex Mono, monospace', color: changeColor }}>
+          {changeSign}{stock.changePercent.toFixed(2)}%
+        </span>
+      </div>
+
+      {/* Ticker + company name — centered, no sector row */}
+      <div style={{ textAlign: 'center', marginTop: 24 }}>
         <div style={{ fontSize: 28, fontWeight: 700, color: '#e8eaf0', fontFamily: 'IBM Plex Mono, monospace', letterSpacing: '0.04em' }}>
           {stock.ticker}
         </div>
         <div style={{ fontSize: 12, color: '#8a93a8', fontFamily: 'IBM Plex Sans, sans-serif', marginTop: 2, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {stock.name}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
-          <span style={{ padding: '2px 8px', borderRadius: 4, background: '#161b24', border: '1px solid #252d40', fontSize: 10, color: '#8a93a8', fontFamily: 'IBM Plex Sans, sans-serif', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-            {stock.sector}
-            {' '}
-            <span style={{ color: stock.sectorTrend === 'UP' ? '#00d4aa' : stock.sectorTrend === 'DOWN' ? '#ef5350' : '#ffb300' }}>
-              {stock.sectorTrend === 'UP' ? '↑' : stock.sectorTrend === 'DOWN' ? '↓' : '→'}
-              {stock.sectorChangePercent !== 0 && ` ${stock.sectorChangePercent > 0 ? '+' : ''}${stock.sectorChangePercent.toFixed(1)}%`}
-            </span>
-          </span>
-          <span style={{ fontSize: 12, fontFamily: 'IBM Plex Mono, monospace', color: changeColor }}>
-            {changeSign}{stock.changePercent.toFixed(2)}%
-          </span>
         </div>
       </div>
 
@@ -876,12 +893,27 @@ const StockCard = forwardRef<CardHandle, {
       {/* SMA pills row */}
       <SmaPillsRow stock={stock} />
 
-      {/* Indicator badges — RSI + signal pills only (SMA pills are in SmaPillsRow above) */}
+      {/* Indicator badges — RSI + P/E inline + signal pills */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, justifyContent: 'center' }}>
         <PillBadge
           label={`RSI ${rsi.toFixed(1)}`}
           color={rsiColor}
           bg={`${rsiColor}18`}
+        />
+        <PillBadge
+          label={stock.peRatio !== null ? `P/E ${stock.peRatio.toFixed(1)}` : 'P/E N/A'}
+          color={
+            stock.peRatio === null ? '#4a5268'
+            : stock.peRatio < 15   ? '#00d4aa'
+            : stock.peRatio < 25   ? '#ffb300'
+            : '#ef5350'
+          }
+          bg={
+            stock.peRatio === null ? 'transparent'
+            : stock.peRatio < 15   ? 'rgba(0,212,170,0.08)'
+            : stock.peRatio < 25   ? 'rgba(255,179,0,0.08)'
+            : 'rgba(239,83,80,0.08)'
+          }
         />
         {stock.wick.hasAggressiveBuySignal && (
           <PillBadge label="🔥 Wick Signal" color="#00d4aa" bg="rgba(0,212,170,0.1)" />
@@ -893,6 +925,22 @@ const StockCard = forwardRef<CardHandle, {
           <PillBadge label="⬆ Trend Aligned" color="#00e676" bg="rgba(0,230,118,0.08)" />
         )}
       </div>
+
+      {/* Near Fib badge — shown when price is within 1.5% of a Fibonacci level */}
+      {stock.nearFibLevel?.isNear && (
+        <div style={{
+          alignSelf: 'center',
+          padding: '3px 10px', borderRadius: 6,
+          border: '1px solid rgba(255,215,0,0.4)',
+          background: 'rgba(255,215,0,0.08)',
+          color: '#ffd700',
+          fontSize: 10, fontWeight: 600,
+          fontFamily: 'IBM Plex Sans, sans-serif',
+          letterSpacing: '0.06em',
+        }}>
+          🎯 Near {stock.nearFibLevel.label} Fib (${stock.nearFibLevel.price.toFixed(2)})
+        </div>
+      )}
 
       {/* Verdict block */}
       <div style={{ width: '100%', padding: '11px 14px', borderRadius: 10, borderLeft: `3px solid ${verdictColor}`, background: `${verdictColor}14` }}>

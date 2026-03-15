@@ -1,6 +1,6 @@
 import yf from 'yahoo-finance2';
 import NodeCache from 'node-cache';
-import type { OhlcvBar } from '../types.js';
+import type { OhlcvBar, TrendDirection } from '../types.js';
 
 // ESM FIX: Получаем рабочий инстанс
 const getYahooInstance = () => {
@@ -113,16 +113,14 @@ const SECTOR_ETF: Record<string, string> = {
   'Communication Services': 'XLC',
 };
 
-import type { TrendDirection } from '../types.js';
-
 const sectorCache = new NodeCache({ stdTTL: 300 }); // 5-minute cache
 
-export async function getSectorEtfChange(sector: string): Promise<{ changePercent: number; trend: TrendDirection }> {
+export async function getSectorEtfChange(sector: string): Promise<{ changePercent: number; trend: TrendDirection; etfTicker: string }> {
   const etf = SECTOR_ETF[sector];
-  if (!etf) return { changePercent: 0, trend: 'SIDEWAYS' };
+  if (!etf) return { changePercent: 0, trend: 'SIDEWAYS', etfTicker: '' };
 
   const cacheKey = `sector_${etf}`;
-  const cached = sectorCache.get<{ changePercent: number; trend: TrendDirection }>(cacheKey);
+  const cached = sectorCache.get<{ changePercent: number; trend: TrendDirection; etfTicker: string }>(cacheKey);
   if (cached) return cached;
 
   try {
@@ -130,11 +128,11 @@ export async function getSectorEtfChange(sector: string): Promise<{ changePercen
     const q = Array.isArray(results) ? results[0] : results;
     const changePercent = (q as any)?.regularMarketChangePercent ?? 0;
     const trend: TrendDirection = changePercent > 0.3 ? 'UP' : changePercent < -0.3 ? 'DOWN' : 'SIDEWAYS';
-    const result = { changePercent: parseFloat(changePercent.toFixed(2)), trend };
+    const result = { changePercent: parseFloat(changePercent.toFixed(2)), trend, etfTicker: etf };
     sectorCache.set(cacheKey, result);
     return result;
   } catch {
-    return { changePercent: 0, trend: 'SIDEWAYS' };
+    return { changePercent: 0, trend: 'SIDEWAYS', etfTicker: etf };
   }
 }
 

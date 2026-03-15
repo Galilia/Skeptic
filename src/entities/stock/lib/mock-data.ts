@@ -1,16 +1,16 @@
-import type { ProcessedStock, VerdictType, TrendDirection, FibLevel } from '../model/types/stock';
+import type { ProcessedStock, VerdictType, TrendDirection, FibLevel, SRLevel, NearFibLevel } from '../model/types/stock';
 
-// Base entries — existing fields only, computed/derived fields excluded
-// (computed in getMockStocks so we don't repeat them 10x)
+// Base entries — only static/manually-set fields; all derived fields are computed in getMockStocks
 type MockBase = Omit<
   ProcessedStock,
   | 'lastUpdated' | 'priceOnSma150' | 'priceOnSma200' | 'volumeConfirmed' | 'volumeSpike'
   | 'shortTrend' | 'longTrend' | 'trendAligned' | 'nearBuyTarget' | 'nearStop'
-  | 'supportLevels' | 'resistanceLevels' | 'fibLevels' | 'nearestFibLabel' | 'riskRewardRatio'
+  | 'supportLevels' | 'resistanceLevels' | 'fibLevels' | 'nearFibLevel' | 'riskRewardRatio'
   | 'fearGreedValue' | 'fearGreedLabel'
-  | 'sectorChangePercent' | 'sectorTrend'
+  | 'sectorChangePercent' | 'sectorTrend' | 'sectorEtfTicker'
   | 'analystConsensus' | 'analystCount'
   | 'stopAtrMultiplier'
+  | 'redFlags'
   | 'indicators'
 > & {
   indicators: Omit<ProcessedStock['indicators'], 'sma20' | 'sma150'>;
@@ -219,6 +219,17 @@ const MOCK_STOCKS: MockBase[] = [
   },
 ];
 
+const SECTOR_ETF_MAP: Record<string, string> = {
+  'Technology':             'XLK',
+  'Financials':             'XLF',
+  'Energy':                 'XLE',
+  'Consumer Staples':       'XLP',
+  'Consumer Discretionary': 'XLY',
+  'Industrials':            'XLI',
+  'Health Care':            'XLV',
+  'Materials':              'XLB',
+};
+
 /** Adds random micro-noise to simulate live price updates */
 function jitterPrice(base: number, volatility = 0.003): number {
   const noise = (Math.random() - 0.5) * 2 * volatility;
@@ -238,8 +249,8 @@ function mockFibLevels(hi: number, lo: number): FibLevel[] {
   ];
 }
 
-/** Find the nearest fib label within 2% of price */
-function nearestFib(fibs: FibLevel[], price: number): string | null {
+/** Compute NearFibLevel from a list of fib levels and current price */
+function computeNearFibLevel(fibs: FibLevel[], price: number): NearFibLevel | null {
   if (!fibs.length) return null;
   let best = fibs[0];
   let minDist = Math.abs(price - fibs[0].price);
@@ -247,7 +258,32 @@ function nearestFib(fibs: FibLevel[], price: number): string | null {
     const d = Math.abs(price - f.price);
     if (d < minDist) { minDist = d; best = f; }
   }
-  return minDist / price * 100 <= 2 ? best.label : null;
+  const distance = parseFloat((minDist / price * 100).toFixed(2));
+  return { label: best.label, price: best.price, distance, isNear: distance <= 1.5 };
+}
+
+/** Build mock S/R levels with touch counts */
+function mockSRLevels(prices: number[]): SRLevel[] {
+  return prices.filter(Boolean).map((p) => ({ price: p, touches: 3 + Math.floor(Math.random() * 3) }));
+}
+
+/** Compute red flags from stock data (mirrors backend logic for mock data) */
+function computeMockRedFlags(s: MockBase, trendAligned: boolean, resistanceLevels: SRLevel[], price: number): string[] {
+  const flags: string[] = [];
+  if (s.indicators.rsi14 > 70) flags.push(`RSI ${s.indicators.rsi14.toFixed(1)} > 70 — Overbought`);
+  if (s.indicators.rsi14 < 30) flags.push(`RSI ${s.indicators.rsi14.toFixed(1)} < 30 — Oversold (falling knife risk)`);
+  if (s.indicators.smaProximityPct > 12) flags.push(`Price +${s.indicators.smaProximityPct.toFixed(1)}% above SMA50 — Overextended`);
+  if (s.audit.isWeakMomentum) flags.push('Volume < 5-day avg — No conviction');
+  if (!trendAligned) flags.push('Trend NOT aligned — Short vs Long conflict');
+  if (resistanceLevels.length > 0) {
+    const upside = (resistanceLevels[0].price - price) / price * 100;
+    if (upside <= 2) flags.push(`Near strong resistance ($${resistanceLevels[0].price.toFixed(2)}) — Limited upside`);
+  }
+  const sma150 = s.indicators.sma200 * 1.030;
+  if (price < sma150 && price < s.indicators.sma200) flags.push('Below SMA150 and SMA200 — Bearish structure');
+  if (s.pattern.hasDoubleTop) flags.push('Double Top pattern — Distribution signal');
+  if (s.peRatio !== null && s.peRatio > 40) flags.push(`P/E ${s.peRatio.toFixed(1)} > 40 — Expensive valuation`);
+  return flags;
 }
 
 export function getMockStocks(): ProcessedStock[] {
@@ -257,10 +293,8 @@ export function getMockStocks(): ProcessedStock[] {
     // Approximate SMA20 and SMA150 from existing SMA50/200 data
     const sma20  = parseFloat((s.indicators.sma50  * 0.988).toFixed(2));
     const sma150 = parseFloat((s.indicators.sma200 * 1.030).toFixed(2));
-
     const indicators = { ...s.indicators, sma20, sma150 };
 
-    // Signal derivations from existing data
     const volumeConfirmed = !s.audit.isWeakMomentum;
     const volumeSpike     = false;
 
@@ -275,17 +309,27 @@ export function getMockStocks(): ProcessedStock[] {
     const priceOnSma150 = Math.abs(price - sma150) / sma150 * 100 <= 1.5;
     const priceOnSma200 = Math.abs(price - indicators.sma200) / indicators.sma200 * 100 <= 1.5;
 
-    // Rough swing range for fibonacci
     const swingHi = Math.max(price, s.indicators.sma50)  * 1.06;
     const swingLo = Math.min(price, s.indicators.sma200) * 0.94;
     const fibLevels = mockFibLevels(swingHi, swingLo);
-    const nearestFibLabel = nearestFib(fibLevels, price);
+    const nearFibLevel = computeNearFibLevel(fibLevels, price);
 
     const riskRewardRatio = (s.buyTarget - s.stop) > 0
       ? parseFloat(((s.indicators.atr14 * 2) / (s.buyTarget - s.stop)).toFixed(2))
       : 0;
 
+    const resistanceLevels: SRLevel[] = mockSRLevels([
+      parseFloat((s.indicators.sma50 * 1.05).toFixed(2)),
+      parseFloat((s.indicators.sma50 * 1.10).toFixed(2)),
+    ]);
+    const supportLevels: SRLevel[] = mockSRLevels([s.stop, s.floor].filter(Boolean));
+
     const stopAtrMultiplier = s.indicators.smaProximityPct > 5 ? 1.5 : 1.0;
+    const sectorEtfTicker   = SECTOR_ETF_MAP[s.sector] ?? '';
+    const sectorChangePercent = parseFloat(((Math.random() - 0.5) * 2).toFixed(2));
+    const sectorTrend: TrendDirection = sectorChangePercent > 0.3 ? 'UP' : sectorChangePercent < -0.3 ? 'DOWN' : 'SIDEWAYS';
+
+    const redFlags = computeMockRedFlags(s, trendAligned, resistanceLevels, price);
 
     return {
       ...s,
@@ -303,20 +347,18 @@ export function getMockStocks(): ProcessedStock[] {
       nearStop,
       fearGreedValue: 48,
       fearGreedLabel: 'Fear',
-      supportLevels: [s.stop, s.floor].filter(Boolean),
-      resistanceLevels: [
-        parseFloat((s.indicators.sma50 * 1.05).toFixed(2)),
-        parseFloat((s.indicators.sma50 * 1.10).toFixed(2)),
-      ],
+      supportLevels,
+      resistanceLevels,
       fibLevels,
-      nearestFibLabel,
+      nearFibLevel,
       riskRewardRatio,
-      // Sector/analyst/stop defaults for mock data
-      sectorChangePercent: parseFloat(((Math.random() - 0.5) * 2).toFixed(2)),
-      sectorTrend: shortTrend,
+      sectorChangePercent,
+      sectorTrend,
+      sectorEtfTicker,
       analystConsensus: ['Strong Buy', 'Buy', 'Hold'][Math.floor(Math.random() * 3)],
       analystCount: Math.floor(Math.random() * 20) + 5,
       stopAtrMultiplier,
+      redFlags,
     };
   });
 }
@@ -332,9 +374,18 @@ export function getMockStockUpdate(ticker: string): ProcessedStock | undefined {
   const indicators = { ...base.indicators, sma20, sma150 };
   const shortTrend: TrendDirection = base.indicators.smaProximityPct > 3 ? 'UP' : base.indicators.smaProximityPct < -3 ? 'DOWN' : 'SIDEWAYS';
   const longTrend: TrendDirection  = newPrice > base.indicators.sma200 ? 'UP' : 'DOWN';
+  const trendAligned = shortTrend === 'UP' && longTrend === 'UP';
   const swingHi = Math.max(newPrice, base.indicators.sma50)  * 1.06;
   const swingLo = Math.min(newPrice, base.indicators.sma200) * 0.94;
   const fibLevels = mockFibLevels(swingHi, swingLo);
+  const resistanceLevels: SRLevel[] = mockSRLevels([
+    parseFloat((base.indicators.sma50 * 1.05).toFixed(2)),
+    parseFloat((base.indicators.sma50 * 1.10).toFixed(2)),
+  ]);
+  const supportLevels: SRLevel[] = mockSRLevels([base.stop, base.floor].filter(Boolean));
+  const sectorChangePercent = parseFloat(((Math.random() - 0.5) * 2).toFixed(2));
+  const sectorTrend: TrendDirection = sectorChangePercent > 0.3 ? 'UP' : sectorChangePercent < -0.3 ? 'DOWN' : 'SIDEWAYS';
+
   return {
     ...base,
     price: newPrice,
@@ -348,26 +399,25 @@ export function getMockStockUpdate(ticker: string): ProcessedStock | undefined {
     volumeSpike: false,
     shortTrend,
     longTrend,
-    trendAligned: shortTrend === 'UP' && longTrend === 'UP',
+    trendAligned,
     nearBuyTarget: Math.abs(newPrice - base.buyTarget) / base.buyTarget * 100 <= 2.5,
     nearStop: Math.abs(newPrice - base.stop) / base.stop * 100 <= 1.5,
     fearGreedValue: 48,
     fearGreedLabel: 'Fear',
-    supportLevels: [base.stop, base.floor].filter(Boolean),
-    resistanceLevels: [
-      parseFloat((base.indicators.sma50 * 1.05).toFixed(2)),
-      parseFloat((base.indicators.sma50 * 1.10).toFixed(2)),
-    ],
+    supportLevels,
+    resistanceLevels,
     fibLevels,
-    nearestFibLabel: nearestFib(fibLevels, newPrice),
+    nearFibLevel: computeNearFibLevel(fibLevels, newPrice),
     riskRewardRatio: (base.buyTarget - base.stop) > 0
       ? parseFloat(((base.indicators.atr14 * 2) / (base.buyTarget - base.stop)).toFixed(2))
       : 0,
-    sectorChangePercent: parseFloat(((Math.random() - 0.5) * 2).toFixed(2)),
-    sectorTrend: shortTrend,
+    sectorChangePercent,
+    sectorTrend,
+    sectorEtfTicker: SECTOR_ETF_MAP[base.sector] ?? '',
     analystConsensus: 'N/A',
     analystCount: 0,
     stopAtrMultiplier: base.indicators.smaProximityPct > 5 ? 1.5 : 1.0,
+    redFlags: computeMockRedFlags(base, trendAligned, resistanceLevels, newPrice),
   };
 }
 
