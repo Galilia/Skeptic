@@ -1,6 +1,6 @@
 import type { ProcessedStock, VerdictType, TrendDirection, FibLevel } from '../model/types/stock';
 
-// Base entries — existing fields only, sma20/sma150 excluded from indicators
+// Base entries — existing fields only, computed/derived fields excluded
 // (computed in getMockStocks so we don't repeat them 10x)
 type MockBase = Omit<
   ProcessedStock,
@@ -8,6 +8,9 @@ type MockBase = Omit<
   | 'shortTrend' | 'longTrend' | 'trendAligned' | 'nearBuyTarget' | 'nearStop'
   | 'supportLevels' | 'resistanceLevels' | 'fibLevels' | 'nearestFibLabel' | 'riskRewardRatio'
   | 'fearGreedValue' | 'fearGreedLabel'
+  | 'sectorChangePercent' | 'sectorTrend'
+  | 'analystConsensus' | 'analystCount'
+  | 'stopAtrMultiplier'
   | 'indicators'
 > & {
   indicators: Omit<ProcessedStock['indicators'], 'sma20' | 'sma150'>;
@@ -282,6 +285,8 @@ export function getMockStocks(): ProcessedStock[] {
       ? parseFloat(((s.indicators.atr14 * 2) / (s.buyTarget - s.stop)).toFixed(2))
       : 0;
 
+    const stopAtrMultiplier = s.indicators.smaProximityPct > 5 ? 1.5 : 1.0;
+
     return {
       ...s,
       price,
@@ -306,6 +311,12 @@ export function getMockStocks(): ProcessedStock[] {
       fibLevels,
       nearestFibLabel,
       riskRewardRatio,
+      // Sector/analyst/stop defaults for mock data
+      sectorChangePercent: parseFloat(((Math.random() - 0.5) * 2).toFixed(2)),
+      sectorTrend: shortTrend,
+      analystConsensus: ['Strong Buy', 'Buy', 'Hold'][Math.floor(Math.random() * 3)],
+      analystCount: Math.floor(Math.random() * 20) + 5,
+      stopAtrMultiplier,
     };
   });
 }
@@ -352,6 +363,11 @@ export function getMockStockUpdate(ticker: string): ProcessedStock | undefined {
     riskRewardRatio: (base.buyTarget - base.stop) > 0
       ? parseFloat(((base.indicators.atr14 * 2) / (base.buyTarget - base.stop)).toFixed(2))
       : 0,
+    sectorChangePercent: parseFloat(((Math.random() - 0.5) * 2).toFixed(2)),
+    sectorTrend: shortTrend,
+    analystConsensus: 'N/A',
+    analystCount: 0,
+    stopAtrMultiplier: base.indicators.smaProximityPct > 5 ? 1.5 : 1.0,
   };
 }
 

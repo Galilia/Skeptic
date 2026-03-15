@@ -88,4 +88,15 @@ export interface ProcessedStock {
   fibLevels: FibLevel[];
   nearestFibLabel: string | null;
   riskRewardRatio: number;
+
+  // Sector trend (from ETF daily change)
+  sectorChangePercent: number;
+  sectorTrend: TrendDirection;
+
+  // Analyst consensus from Yahoo financialData
+  analystConsensus: string;
+  analystCount: number;
+
+  // Dynamic ATR multiplier for hard stop
+  stopAtrMultiplier: number;
 }

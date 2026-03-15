@@ -56,6 +56,7 @@ function findMatchingPair(pivots: Pivot[]): number | null {
   return null;
 }
 
+// Time complexity: O(p²) where p = pivot count — bounded by ≤30 pivots in a 60-bar window, effectively O(1)
 export function scanPatterns(bars: OhlcvBar[]): PatternDetection {
   const window = bars.slice(-60);
   if (window.length < 11) return { hasDoubleBottom: false, hasDoubleTop: false, patternLevel: null, patternDescription: null };
@@ -135,6 +136,7 @@ export function computeTrend(bars: OhlcvBar[], period: number): TrendDirection {
 /**
  * Find the swing high/low in the last `lookback` bars and compute standard
  * Fibonacci retracement levels (23.6 → 78.6%).
+ * Time complexity: O(n) single pass over `lookback` bars.
  */
 export function computeFibLevels(bars: OhlcvBar[], lookback = 60): FibLevel[] {
   const window = bars.slice(-lookback);
@@ -178,6 +180,7 @@ export function findNearestFibLabel(fibLevels: FibLevel[], currentPrice: number)
  * Bucket OHLC prices into 1%-wide buckets over the last `lookback` bars.
  * Buckets touched ≥3 times are treated as S/R levels.
  * Returns the top 3 support levels (below price) and top 3 resistance levels (above).
+ * Time complexity: O(n log n) — O(n) bucket fill + O(k log k) sort where k = unique bucket count.
  */
 export function computeSupportResistance(
   bars: OhlcvBar[],

@@ -10,7 +10,7 @@ import {
   findNearestFibLabel,
   computeSupportResistance,
 } from '../indicators/analysis.js';
-import { getHistoricalBars, getLiveQuotes, getFearGreedIndex } from './fmp-provider.js';
+import { getHistoricalBars, getLiveQuotes, getFearGreedIndex, getSectorEtfChange, getAnalystConsensus } from './fmp-provider.js';
 
 /** Metadata for default portfolio */
 export const PORTFOLIO_META: Record<string, { name: string; sector: string; strategy: string }> = {
@@ -65,7 +65,9 @@ export async function processStock(
 
     // Action levels
     const buyTarget = parseFloat((indicators.sma50 * 0.7 + lastBar.low * 0.3).toFixed(2));
-    const stop      = parseFloat((lastBar.low - indicators.atr14).toFixed(2));
+    // Dynamic ATR multiplier: wider stop when price is overextended above SMA50
+    const stopAtrMultiplier = indicators.smaProximityPct > 5 ? 1.5 : 1.0;
+    const stop      = parseFloat((lastBar.low - indicators.atr14 * stopAtrMultiplier).toFixed(2));
     const floor     = pattern.hasDoubleBottom && pattern.patternLevel != null
       ? pattern.patternLevel
       : parseFloat((indicators.sma200 * 0.92).toFixed(2));
@@ -95,6 +97,12 @@ export async function processStock(
     // Valuation & sentiment (PE comes from batch quote, F&G cached hourly)
     const peRatio = liveQuotes?.[ticker]?.trailingPE ?? null;
     const resolvedFearGreed = fearGreed ?? await getFearGreedIndex();
+
+    // Sector ETF trend (5-min cache) + analyst consensus (15-min cache)
+    const [sectorData, analystData] = await Promise.all([
+      getSectorEtfChange(meta?.sector ?? ''),
+      getAnalystConsensus(ticker),
+    ]);
 
     // Risk/reward: reward = 2×ATR above entry, risk = buyTarget - stop
     const riskRewardRatio = (buyTarget - stop) > 0
@@ -139,6 +147,11 @@ export async function processStock(
       fibLevels,
       nearestFibLabel,
       riskRewardRatio,
+      sectorChangePercent: sectorData.changePercent,
+      sectorTrend: sectorData.trend,
+      analystConsensus: analystData.consensus,
+      analystCount: analystData.count,
+      stopAtrMultiplier,
     };
   } catch (e) {
     console.error(`[processStock] Error for ${ticker}:`, e);

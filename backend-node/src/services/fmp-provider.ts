@@ -97,6 +97,80 @@ export function clearHistoryCache(ticker: string): void {
   historyCache.del(`hist_${ticker}`);
 }
 
+// ── Sector ETF Trend ──────────────────────────────────────────────────────────
+
+const SECTOR_ETF: Record<string, string> = {
+  'Technology':             'XLK',
+  'Financials':             'XLF',
+  'Energy':                 'XLE',
+  'Consumer Staples':       'XLP',
+  'Consumer Discretionary': 'XLY',
+  'Industrials':            'XLI',
+  'Health Care':            'XLV',
+  'Materials':              'XLB',
+  'Real Estate':            'XLRE',
+  'Utilities':              'XLU',
+  'Communication Services': 'XLC',
+};
+
+import type { TrendDirection } from '../types.js';
+
+const sectorCache = new NodeCache({ stdTTL: 300 }); // 5-minute cache
+
+export async function getSectorEtfChange(sector: string): Promise<{ changePercent: number; trend: TrendDirection }> {
+  const etf = SECTOR_ETF[sector];
+  if (!etf) return { changePercent: 0, trend: 'SIDEWAYS' };
+
+  const cacheKey = `sector_${etf}`;
+  const cached = sectorCache.get<{ changePercent: number; trend: TrendDirection }>(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const results = await yahooFinance.quote(etf);
+    const q = Array.isArray(results) ? results[0] : results;
+    const changePercent = (q as any)?.regularMarketChangePercent ?? 0;
+    const trend: TrendDirection = changePercent > 0.3 ? 'UP' : changePercent < -0.3 ? 'DOWN' : 'SIDEWAYS';
+    const result = { changePercent: parseFloat(changePercent.toFixed(2)), trend };
+    sectorCache.set(cacheKey, result);
+    return result;
+  } catch {
+    return { changePercent: 0, trend: 'SIDEWAYS' };
+  }
+}
+
+// ── Analyst Consensus ─────────────────────────────────────────────────────────
+
+const analystCache = new NodeCache({ stdTTL: 900 }); // 15-minute cache
+
+const RECOMMENDATION_LABELS: Record<string, string> = {
+  strongBuy:    'Strong Buy',
+  buy:          'Buy',
+  hold:         'Hold',
+  underperform: 'Underperform',
+  sell:         'Sell',
+};
+
+export async function getAnalystConsensus(ticker: string): Promise<{ consensus: string; count: number }> {
+  const cacheKey = `analyst_${ticker}`;
+  const cached = analystCache.get<{ consensus: string; count: number }>(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const summary = await yahooFinance.quoteSummary(ticker, { modules: ['financialData'] as any });
+    const fd = (summary as any).financialData;
+    const key   = fd?.recommendationKey ?? '';
+    const count = typeof fd?.numberOfAnalystOpinions === 'number' ? fd.numberOfAnalystOpinions : 0;
+    const result = {
+      consensus: RECOMMENDATION_LABELS[key] ?? (key || 'N/A'),
+      count,
+    };
+    analystCache.set(cacheKey, result);
+    return result;
+  } catch {
+    return { consensus: 'N/A', count: 0 };
+  }
+}
+
 // ── Fear & Greed Index ────────────────────────────────────────────────────────
 
 const fngCache = new NodeCache({ stdTTL: 3600 }); // refresh once per hour
