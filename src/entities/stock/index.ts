@@ -8,6 +8,8 @@ export type {
   StockFilter,
   VerdictType,
   SignalStrength,
+  TrendDirection,
+  FibLevel,
 } from './model/types/stock';
 
 export {

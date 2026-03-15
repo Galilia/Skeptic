@@ -33,13 +33,15 @@ function atr(bars: OhlcvBar[], period = 14): number {
 
 export function computeIndicators(bars: OhlcvBar[]): StockIndicators {
   const closes = bars.map((b) => b.close);
-  const sma50 = parseFloat(sma(closes, 50).toFixed(2));
+  const sma20  = parseFloat(sma(closes, 20).toFixed(2));
+  const sma50  = parseFloat(sma(closes, 50).toFixed(2));
+  const sma150 = parseFloat(sma(closes, 150).toFixed(2));
   const sma200 = parseFloat(sma(closes, 200).toFixed(2));
-  const rsi14 = rsi(closes, 14);
-  const atr14 = atr(bars, 14);
+  const rsi14  = rsi(closes, 14);
+  const atr14  = atr(bars, 14);
   const currentPrice = closes[closes.length - 1];
   const smaProximityPct = parseFloat(
     (((currentPrice - sma50) / sma50) * 100).toFixed(2)
   );
-  return { sma50, sma200, rsi14, atr14, smaProximityPct };
+  return { sma20, sma50, sma150, sma200, rsi14, atr14, smaProximityPct };
 }

@@ -1,4 +1,11 @@
 export type VerdictType = 'BUY' | 'ACCUMULATE' | 'WAIT' | 'AVOID' | 'DANGER';
+export type TrendDirection = 'UP' | 'DOWN' | 'SIDEWAYS';
+
+export interface FibLevel {
+  pct: number;
+  price: number;
+  label: string;
+}
 
 export interface OhlcvBar {
   date: string;
@@ -11,10 +18,13 @@ export interface OhlcvBar {
 }
 
 export interface StockIndicators {
+  sma20: number;
   sma50: number;
+  sma150: number;
   sma200: number;
   rsi14: number;
   atr14: number;
+  /** % Distance from SMA50: ((Price - SMA50) / SMA50) * 100 */
   smaProximityPct: number;
 }
 
@@ -57,4 +67,20 @@ export interface ProcessedStock {
   audit: SkepticsAudit;
   pattern: PatternDetection;
   lastUpdated: string;
+
+  // Signal enrichment fields
+  priceOnSma150: boolean;
+  priceOnSma200: boolean;
+  volumeConfirmed: boolean;
+  volumeSpike: boolean;
+  shortTrend: TrendDirection;
+  longTrend: TrendDirection;
+  trendAligned: boolean;
+  nearBuyTarget: boolean;
+  nearStop: boolean;
+  supportLevels: number[];
+  resistanceLevels: number[];
+  fibLevels: FibLevel[];
+  nearestFibLabel: string | null;
+  riskRewardRatio: number;
 }

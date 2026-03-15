@@ -1,6 +1,18 @@
-import type { ProcessedStock, VerdictType } from '../model/types/stock';
+import type { ProcessedStock, VerdictType, TrendDirection, FibLevel } from '../model/types/stock';
 
-const MOCK_STOCKS: Omit<ProcessedStock, 'lastUpdated'>[] = [
+// Base entries — existing fields only, sma20/sma150 excluded from indicators
+// (computed in getMockStocks so we don't repeat them 10x)
+type MockBase = Omit<
+  ProcessedStock,
+  | 'lastUpdated' | 'priceOnSma150' | 'priceOnSma200' | 'volumeConfirmed' | 'volumeSpike'
+  | 'shortTrend' | 'longTrend' | 'trendAligned' | 'nearBuyTarget' | 'nearStop'
+  | 'supportLevels' | 'resistanceLevels' | 'fibLevels' | 'nearestFibLabel' | 'riskRewardRatio'
+  | 'indicators'
+> & {
+  indicators: Omit<ProcessedStock['indicators'], 'sma20' | 'sma150'>;
+};
+
+const MOCK_STOCKS: MockBase[] = [
   {
     ticker: 'ADM',
     name: 'Archer-Daniels-Midland',
@@ -199,12 +211,90 @@ function jitterPrice(base: number, volatility = 0.003): number {
   return parseFloat((base * (1 + noise)).toFixed(2));
 }
 
+/** Build mock fibonacci levels from rough swing range */
+function mockFibLevels(hi: number, lo: number): FibLevel[] {
+  const range = hi - lo;
+  if (range <= 0) return [];
+  return [
+    { pct: 23.6, label: '23.6%', price: parseFloat((hi - range * 0.236).toFixed(2)) },
+    { pct: 38.2, label: '38.2%', price: parseFloat((hi - range * 0.382).toFixed(2)) },
+    { pct: 50.0, label: '50%',   price: parseFloat((hi - range * 0.500).toFixed(2)) },
+    { pct: 61.8, label: '61.8%', price: parseFloat((hi - range * 0.618).toFixed(2)) },
+    { pct: 78.6, label: '78.6%', price: parseFloat((hi - range * 0.786).toFixed(2)) },
+  ];
+}
+
+/** Find the nearest fib label within 2% of price */
+function nearestFib(fibs: FibLevel[], price: number): string | null {
+  if (!fibs.length) return null;
+  let best = fibs[0];
+  let minDist = Math.abs(price - fibs[0].price);
+  for (const f of fibs) {
+    const d = Math.abs(price - f.price);
+    if (d < minDist) { minDist = d; best = f; }
+  }
+  return minDist / price * 100 <= 2 ? best.label : null;
+}
+
 export function getMockStocks(): ProcessedStock[] {
-  return MOCK_STOCKS.map((s) => ({
-    ...s,
-    price: jitterPrice(s.price),
-    lastUpdated: new Date().toISOString(),
-  }));
+  return MOCK_STOCKS.map((s) => {
+    const price = jitterPrice(s.price);
+
+    // Approximate SMA20 and SMA150 from existing SMA50/200 data
+    const sma20  = parseFloat((s.indicators.sma50  * 0.988).toFixed(2));
+    const sma150 = parseFloat((s.indicators.sma200 * 1.030).toFixed(2));
+
+    const indicators = { ...s.indicators, sma20, sma150 };
+
+    // Signal derivations from existing data
+    const volumeConfirmed = !s.audit.isWeakMomentum;
+    const volumeSpike     = false;
+
+    const smaProx = s.indicators.smaProximityPct;
+    const shortTrend: TrendDirection = smaProx > 3 ? 'UP' : smaProx < -3 ? 'DOWN' : 'SIDEWAYS';
+    const longTrend: TrendDirection  = price > s.indicators.sma200 ? 'UP' : 'DOWN';
+    const trendAligned = shortTrend === 'UP' && longTrend === 'UP';
+
+    const nearBuyTarget = Math.abs(price - s.buyTarget) / s.buyTarget * 100 <= 2.5;
+    const nearStop      = Math.abs(price - s.stop)      / s.stop      * 100 <= 1.5;
+
+    const priceOnSma150 = Math.abs(price - sma150) / sma150 * 100 <= 1.5;
+    const priceOnSma200 = Math.abs(price - indicators.sma200) / indicators.sma200 * 100 <= 1.5;
+
+    // Rough swing range for fibonacci
+    const swingHi = Math.max(price, s.indicators.sma50)  * 1.06;
+    const swingLo = Math.min(price, s.indicators.sma200) * 0.94;
+    const fibLevels = mockFibLevels(swingHi, swingLo);
+    const nearestFibLabel = nearestFib(fibLevels, price);
+
+    const riskRewardRatio = (s.buyTarget - s.stop) > 0
+      ? parseFloat(((s.indicators.atr14 * 2) / (s.buyTarget - s.stop)).toFixed(2))
+      : 0;
+
+    return {
+      ...s,
+      price,
+      lastUpdated: new Date().toISOString(),
+      indicators,
+      priceOnSma150,
+      priceOnSma200,
+      volumeConfirmed,
+      volumeSpike,
+      shortTrend,
+      longTrend,
+      trendAligned,
+      nearBuyTarget,
+      nearStop,
+      supportLevels: [s.stop, s.floor].filter(Boolean),
+      resistanceLevels: [
+        parseFloat((s.indicators.sma50 * 1.05).toFixed(2)),
+        parseFloat((s.indicators.sma50 * 1.10).toFixed(2)),
+      ],
+      fibLevels,
+      nearestFibLabel,
+      riskRewardRatio,
+    };
+  });
 }
 
 export function getMockStockUpdate(ticker: string): ProcessedStock | undefined {
@@ -213,12 +303,40 @@ export function getMockStockUpdate(ticker: string): ProcessedStock | undefined {
   const newPrice = jitterPrice(base.price);
   const newChange = parseFloat((newPrice - base.price + base.change).toFixed(2));
   const newChangePct = parseFloat(((newChange / base.price) * 100).toFixed(2));
+  const sma20  = parseFloat((base.indicators.sma50  * 0.988).toFixed(2));
+  const sma150 = parseFloat((base.indicators.sma200 * 1.030).toFixed(2));
+  const indicators = { ...base.indicators, sma20, sma150 };
+  const shortTrend: TrendDirection = base.indicators.smaProximityPct > 3 ? 'UP' : base.indicators.smaProximityPct < -3 ? 'DOWN' : 'SIDEWAYS';
+  const longTrend: TrendDirection  = newPrice > base.indicators.sma200 ? 'UP' : 'DOWN';
+  const swingHi = Math.max(newPrice, base.indicators.sma50)  * 1.06;
+  const swingLo = Math.min(newPrice, base.indicators.sma200) * 0.94;
+  const fibLevels = mockFibLevels(swingHi, swingLo);
   return {
     ...base,
     price: newPrice,
     change: newChange,
     changePercent: newChangePct,
     lastUpdated: new Date().toISOString(),
+    indicators,
+    priceOnSma150: Math.abs(newPrice - sma150) / sma150 * 100 <= 1.5,
+    priceOnSma200: Math.abs(newPrice - indicators.sma200) / indicators.sma200 * 100 <= 1.5,
+    volumeConfirmed: !base.audit.isWeakMomentum,
+    volumeSpike: false,
+    shortTrend,
+    longTrend,
+    trendAligned: shortTrend === 'UP' && longTrend === 'UP',
+    nearBuyTarget: Math.abs(newPrice - base.buyTarget) / base.buyTarget * 100 <= 2.5,
+    nearStop: Math.abs(newPrice - base.stop) / base.stop * 100 <= 1.5,
+    supportLevels: [base.stop, base.floor].filter(Boolean),
+    resistanceLevels: [
+      parseFloat((base.indicators.sma50 * 1.05).toFixed(2)),
+      parseFloat((base.indicators.sma50 * 1.10).toFixed(2)),
+    ],
+    fibLevels,
+    nearestFibLabel: nearestFib(fibLevels, newPrice),
+    riskRewardRatio: (base.buyTarget - base.stop) > 0
+      ? parseFloat(((base.indicators.atr14 * 2) / (base.buyTarget - base.stop)).toFixed(2))
+      : 0,
   };
 }
 

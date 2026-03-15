@@ -1,6 +1,15 @@
-import type { ProcessedStock } from '../types.js';
+import type { ProcessedStock, TrendDirection } from '../types.js';
 import { computeIndicators } from '../indicators/indicator-engine.js';
-import { detectWick, scanPatterns, runAudit, computeVerdict } from '../indicators/analysis.js';
+import {
+  detectWick,
+  scanPatterns,
+  runAudit,
+  computeVerdict,
+  computeTrend,
+  computeFibLevels,
+  findNearestFibLabel,
+  computeSupportResistance,
+} from '../indicators/analysis.js';
 import { getHistoricalBars, getLiveQuotes } from './fmp-provider.js';
 
 /** Metadata for default portfolio */
@@ -49,20 +58,43 @@ export async function processStock(
     const enrichedBars = [...bars.slice(0, -1), { ...lastBar, close: price }];
 
     const indicators = computeIndicators(enrichedBars);
-    const wick = detectWick(enrichedBars);
-    const pattern = scanPatterns(enrichedBars);
-    const audit = runAudit(indicators, volume, avgVolume);
+    const wick       = detectWick(enrichedBars);
+    const pattern    = scanPatterns(enrichedBars);
+    const audit      = runAudit(indicators, volume, avgVolume);
 
     // Action levels
     const buyTarget = parseFloat((indicators.sma50 * 0.7 + lastBar.low * 0.3).toFixed(2));
-    const stop = parseFloat((lastBar.low - indicators.atr14).toFixed(2));
-    const floor = pattern.hasDoubleBottom && pattern.patternLevel != null
+    const stop      = parseFloat((lastBar.low - indicators.atr14).toFixed(2));
+    const floor     = pattern.hasDoubleBottom && pattern.patternLevel != null
       ? pattern.patternLevel
       : parseFloat((indicators.sma200 * 0.92).toFixed(2));
 
     const { type: verdictType, text: verdict } = computeVerdict(
       indicators, audit, wick, pattern, buyTarget, price
     );
+
+    // Signal enrichment
+    const shortTrend: TrendDirection = computeTrend(enrichedBars, 20);
+    const longTrend:  TrendDirection = computeTrend(enrichedBars, 50);
+    const trendAligned  = shortTrend === 'UP' && longTrend === 'UP';
+    const volumeConfirmed = avgVolume > 0 && volume >= avgVolume * 1.3;
+    const volumeSpike     = avgVolume > 0 && volume >= avgVolume * 2.0;
+
+    const nearBuyTarget = Math.abs(price - buyTarget) / buyTarget * 100 <= 1.5;
+    const nearStop      = Math.abs(price - stop) / stop * 100 <= 1.5;
+
+    const priceOnSma150 = Math.abs(price - indicators.sma150) / indicators.sma150 * 100 <= 1.5;
+    const priceOnSma200 = Math.abs(price - indicators.sma200) / indicators.sma200 * 100 <= 1.5;
+
+    const fibLevels        = computeFibLevels(enrichedBars, 60);
+    const nearestFibLabel  = findNearestFibLabel(fibLevels, price);
+    const { support: supportLevels, resistance: resistanceLevels } =
+      computeSupportResistance(enrichedBars, 120);
+
+    // Risk/reward: reward = 2×ATR above entry, risk = buyTarget - stop
+    const riskRewardRatio = (buyTarget - stop) > 0
+      ? parseFloat(((indicators.atr14 * 2) / (buyTarget - stop)).toFixed(2))
+      : 0;
 
     console.log(`[processStock] ${ticker} price=${price} rsi=${indicators.rsi14} verdict=${verdictType}`);
 
@@ -85,6 +117,20 @@ export async function processStock(
       audit,
       pattern,
       lastUpdated: new Date().toISOString(),
+      priceOnSma150,
+      priceOnSma200,
+      volumeConfirmed,
+      volumeSpike,
+      shortTrend,
+      longTrend,
+      trendAligned,
+      nearBuyTarget,
+      nearStop,
+      supportLevels,
+      resistanceLevels,
+      fibLevels,
+      nearestFibLabel,
+      riskRewardRatio,
     };
   } catch (e) {
     console.error(`[processStock] Error for ${ticker}:`, e);

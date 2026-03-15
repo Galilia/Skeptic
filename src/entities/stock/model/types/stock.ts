@@ -3,8 +3,14 @@
 // ============================================================
 
 export type VerdictType = 'BUY' | 'ACCUMULATE' | 'WAIT' | 'AVOID' | 'DANGER';
-
+export type TrendDirection = 'UP' | 'DOWN' | 'SIDEWAYS';
 export type SignalStrength = 'STRONG' | 'MODERATE' | 'WEAK';
+
+export interface FibLevel {
+  pct: number;
+  price: number;
+  label: string;
+}
 
 export interface WickAnalysis {
   /** Lower wick size in dollars */
@@ -49,7 +55,9 @@ export interface StockQuote {
 }
 
 export interface StockIndicators {
+  sma20: number;
   sma50: number;
+  sma150: number;
   sma200: number;
   rsi14: number;
   atr14: number;
@@ -92,6 +100,22 @@ export interface ProcessedStock {
 
   /** ISO timestamp of last update */
   lastUpdated: string;
+
+  // Signal enrichment fields
+  priceOnSma150: boolean;
+  priceOnSma200: boolean;
+  volumeConfirmed: boolean;
+  volumeSpike: boolean;
+  shortTrend: TrendDirection;
+  longTrend: TrendDirection;
+  trendAligned: boolean;
+  nearBuyTarget: boolean;
+  nearStop: boolean;
+  supportLevels: number[];
+  resistanceLevels: number[];
+  fibLevels: FibLevel[];
+  nearestFibLabel: string | null;
+  riskRewardRatio: number;
 }
 
 export interface StockFilter {

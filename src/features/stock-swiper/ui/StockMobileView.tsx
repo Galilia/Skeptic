@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
+import { useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle } from 'react';
 import {
   motion,
   useMotionValue,
@@ -12,11 +12,15 @@ import { useTerminalStore } from '@/shared/model/terminal-store';
 import { useSignalRConnection } from '@/shared/lib/use-signalr-connection';
 import type { ProcessedStock, VerdictType } from '@/entities/stock';
 import { VERDICT_COLORS } from '@/entities/stock';
+import { useUserSettings } from '@/features/user-settings/model/use-user-settings';
+import UserSettingsSheet from '@/features/user-settings/ui/UserSettings';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const SWIPE_THRESHOLD = 80;
+const SWIPE_UP_THRESHOLD = 80;
 
+// Decorative peek-card gradients (unchanged)
 const VERDICT_GRADIENTS: Record<VerdictType, string> = {
   BUY:        'linear-gradient(180deg, #041a0d 0%, #0a0c0f 65%)',
   ACCUMULATE: 'linear-gradient(180deg, #04091f 0%, #0a0c0f 65%)',
@@ -25,14 +29,111 @@ const VERDICT_GRADIENTS: Record<VerdictType, string> = {
   DANGER:     'linear-gradient(180deg, #1a0404 0%, #0a0c0f 65%)',
 };
 
+// ── Signal helpers ─────────────────────────────────────────────────────────────
+
+function isStrongEntry(stock: ProcessedStock) {
+  return stock.verdictType === 'BUY' &&
+    stock.trendAligned &&
+    stock.volumeConfirmed &&
+    stock.nearBuyTarget;
+}
+
+function getPriceOrbColor(stock: ProcessedStock): string {
+  const { verdictType, trendAligned, volumeConfirmed, nearStop } = stock;
+  if (nearStop) return '#ef5350';
+  if (verdictType === 'DANGER') return '#e53935';
+  if (verdictType === 'AVOID') return '#ff7043';
+  if (verdictType === 'WAIT') return '#ffb300';
+  if (verdictType === 'BUY' && trendAligned && volumeConfirmed) return '#00e676';
+  if (verdictType === 'BUY') return '#00d4aa';
+  if (verdictType === 'ACCUMULATE') return '#4fc3f7';
+  return '#ffb300';
+}
+
+function getPriceOrbAnimation(stock: ProcessedStock): string {
+  if (stock.nearStop) return 'dangerPulse 0.8s ease-in-out infinite';
+  if (isStrongEntry(stock)) return 'entryGlow 1.5s ease-in-out infinite';
+  if (stock.verdictType === 'WAIT') return 'neutralPulse 3s ease-in-out infinite';
+  return 'none';
+}
+
+function getCardBackground(stock: ProcessedStock): string {
+  if (stock.verdictType === 'BUY' && stock.trendAligned && stock.volumeConfirmed)
+    return 'radial-gradient(ellipse at 50% 20%, #003d2e 0%, #000a06 100%)';
+  if (stock.verdictType === 'BUY')
+    return 'radial-gradient(ellipse at 50% 20%, #002e1a 0%, #000a06 100%)';
+  if (stock.verdictType === 'ACCUMULATE')
+    return 'radial-gradient(ellipse at 50% 20%, #001a3d 0%, #000810 100%)';
+  if (stock.verdictType === 'WAIT')
+    return 'radial-gradient(ellipse at 50% 20%, #2d2400 0%, #0a0800 100%)';
+  if (stock.verdictType === 'AVOID')
+    return 'radial-gradient(ellipse at 50% 20%, #3d1500 0%, #0d0500 100%)';
+  if (stock.verdictType === 'DANGER')
+    return 'radial-gradient(ellipse at 50% 20%, #3d0000 0%, #0d0000 100%)';
+  return 'radial-gradient(ellipse at 50% 20%, #2d2400 0%, #0a0800 100%)';
+}
+
+/** Score a stock 0–100 for card ordering (best opportunities first) */
+function scoreStock(stock: ProcessedStock): number {
+  let score = 0;
+  if (stock.verdictType === 'BUY')        score += 30;
+  if (stock.verdictType === 'ACCUMULATE') score += 20;
+  if (stock.trendAligned)                 score += 15;
+  if (stock.volumeConfirmed)              score += 10;
+  if (stock.nearBuyTarget)                score += 10;
+  if (stock.priceOnSma150 || stock.priceOnSma200) score += 10;
+  if (stock.verdictType === 'DANGER')     score -= 30;
+  if (stock.verdictType === 'AVOID')      score -= 20;
+  if (stock.nearStop)                     score -= 10;
+  return score;
+}
+
+// ── Keyframe animations ────────────────────────────────────────────────────────
+
+function MobileAnimationStyles() {
+  return (
+    <style>{`
+      @keyframes entryGlow {
+        0%,100% { box-shadow: 0 0 20px rgba(0,230,118,0.4), 0 0 60px rgba(0,230,118,0.2) }
+        50%     { box-shadow: 0 0 50px rgba(0,230,118,0.9), 0 0 100px rgba(0,230,118,0.5) }
+      }
+      @keyframes neutralPulse {
+        0%,100% { box-shadow: 0 0 15px rgba(255,179,0,0.2) }
+        50%     { box-shadow: 0 0 35px rgba(255,179,0,0.6) }
+      }
+      @keyframes dangerPulse {
+        0%,100% { box-shadow: 0 0 20px rgba(239,83,80,0.5) }
+        50%     { box-shadow: 0 0 60px rgba(239,83,80,1.0) }
+      }
+      @keyframes goldPulse {
+        0%,100% { box-shadow: 0 0 8px rgba(255,215,0,0.2) }
+        50%     { box-shadow: 0 0 20px rgba(255,215,0,0.6) }
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      input[type=range]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 14px; height: 14px;
+        border-radius: 50%;
+        background: #00d4aa;
+        cursor: pointer;
+      }
+      input[type=range]::-moz-range-thumb {
+        width: 14px; height: 14px;
+        border-radius: 50%;
+        background: #00d4aa;
+        border: none;
+        cursor: pointer;
+      }
+    `}</style>
+  );
+}
+
 // ── Price Orb ─────────────────────────────────────────────────────────────────
 
-function PriceOrb({ price, sma50 }: { price: number; sma50: number }) {
-  const above = price >= sma50;
-  const color = above ? '#00d4aa' : '#ef5350';
-  const glow  = above
-    ? '0 0 28px rgba(0,212,170,0.4), 0 0 56px rgba(0,212,170,0.15)'
-    : '0 0 28px rgba(239,83,80,0.4), 0 0 56px rgba(239,83,80,0.15)';
+function PriceOrb({ stock }: { stock: ProcessedStock }) {
+  const color = getPriceOrbColor(stock);
+  const animation = getPriceOrbAnimation(stock);
+  const aboveSma50 = stock.price >= (stock.indicators?.sma50 ?? 0);
 
   return (
     <div style={{
@@ -40,7 +141,7 @@ function PriceOrb({ price, sma50 }: { price: number; sma50: number }) {
       height: 164,
       borderRadius: '50%',
       border: `2px solid ${color}`,
-      boxShadow: glow,
+      animation,
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
@@ -53,10 +154,10 @@ function PriceOrb({ price, sma50 }: { price: number; sma50: number }) {
         Price
       </span>
       <span style={{ fontSize: 28, fontWeight: 600, color, fontFamily: 'IBM Plex Mono, monospace', lineHeight: 1 }}>
-        ${price.toFixed(2)}
+        ${stock.price.toFixed(2)}
       </span>
-      <span style={{ fontSize: 10, color: above ? '#00d4aa88' : '#ef535088', fontFamily: 'IBM Plex Mono, monospace' }}>
-        {above ? '▲ above SMA50' : '▼ below SMA50'}
+      <span style={{ fontSize: 10, color: `${color}88`, fontFamily: 'IBM Plex Mono, monospace' }}>
+        {aboveSma50 ? '▲ above SMA50' : '▼ below SMA50'}
       </span>
     </div>
   );
@@ -109,6 +210,251 @@ function PillBadge({ label, color, bg }: { label: string; color: string; bg: str
   );
 }
 
+// ── SMA Pills Row ─────────────────────────────────────────────────────────────
+
+function SmaPillsRow({ stock }: { stock: ProcessedStock }) {
+  const { price, indicators } = stock;
+  const pills = [
+    { label: 'SMA20',  value: indicators.sma20,  crown: false },
+    { label: 'SMA50',  value: indicators.sma50,  crown: false },
+    { label: 'SMA150', value: indicators.sma150, crown: stock.priceOnSma150 },
+    { label: 'SMA200', value: indicators.sma200, crown: stock.priceOnSma200 },
+  ];
+  return (
+    <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap' }}>
+      {pills.map(({ label, value, crown }) => {
+        const above = price >= value;
+        const color = above ? '#00d4aa' : '#ef5350';
+        return (
+          <span key={label} style={{
+            padding: '3px 10px', borderRadius: 16,
+            border: `1px solid ${color}`,
+            background: `${color}15`,
+            color, fontSize: 11,
+            fontFamily: 'IBM Plex Mono, monospace', fontWeight: 500,
+            whiteSpace: 'nowrap',
+          }}>
+            {crown ? '👑 ' : ''}{label} {above ? '▲' : '▼'}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Key SMA Badge ─────────────────────────────────────────────────────────────
+
+function KeySmaBadge() {
+  return (
+    <div style={{
+      alignSelf: 'center',
+      padding: '5px 14px', borderRadius: 8,
+      border: '1px solid #ffd700',
+      color: '#ffd700',
+      fontSize: 12, fontWeight: 700,
+      fontFamily: 'IBM Plex Sans, sans-serif',
+      letterSpacing: '0.08em',
+      animation: 'goldPulse 2.5s ease-in-out infinite',
+    }}>
+      👑 ON KEY SMA
+    </div>
+  );
+}
+
+// ── Audit Overlay ─────────────────────────────────────────────────────────────
+
+function AuditOverlay({ stock, onClose }: { stock: ProcessedStock; onClose: () => void }) {
+  const ind = stock.indicators;
+  const rsiColor = ind.rsi14 < 50 ? '#00d4aa' : ind.rsi14 < 70 ? '#ffb300' : '#ef5350';
+
+  return (
+    <motion.div
+      initial={{ y: '100%' }}
+      animate={{ y: 0 }}
+      exit={{ y: '100%' }}
+      transition={{ type: 'spring', stiffness: 320, damping: 32 }}
+      style={{
+        position: 'absolute',
+        inset: 0,
+        background: '#090b0e',
+        zIndex: 50,
+        overflowY: 'auto',
+        padding: '16px 18px 80px',
+        touchAction: 'pan-y',
+      }}
+    >
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: '#4a5268', letterSpacing: '0.1em', textTransform: 'uppercase', fontFamily: 'IBM Plex Sans, sans-serif' }}>
+          Full Audit — {stock.ticker}
+        </span>
+        <button
+          onClick={onClose}
+          style={{
+            background: 'transparent', border: '1px solid #252d40', borderRadius: 6,
+            color: '#8a93a8', fontSize: 12, padding: '4px 10px', cursor: 'pointer',
+            fontFamily: 'IBM Plex Sans, sans-serif',
+          }}
+        >
+          Close ✕
+        </button>
+      </div>
+
+      {/* Indicators grid */}
+      <AuditSection title="Indicators">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <AuditStat label="SMA 20"  value={`$${ind.sma20.toFixed(2)}`}  color={stock.price >= ind.sma20  ? '#00d4aa' : '#ef5350'} />
+          <AuditStat label="SMA 50"  value={`$${ind.sma50.toFixed(2)}`}  color={stock.price >= ind.sma50  ? '#00d4aa' : '#ef5350'} />
+          <AuditStat label="SMA 150" value={`$${ind.sma150.toFixed(2)}`} color={stock.price >= ind.sma150 ? '#00d4aa' : '#ef5350'} />
+          <AuditStat label="SMA 200" value={`$${ind.sma200.toFixed(2)}`} color={stock.price >= ind.sma200 ? '#00d4aa' : '#ef5350'} />
+          <AuditStat label="RSI 14"  value={ind.rsi14.toFixed(1)}        color={rsiColor} />
+          <AuditStat label="ATR 14"  value={`$${ind.atr14.toFixed(2)}`}  color="#8a93a8" />
+        </div>
+      </AuditSection>
+
+      {/* Trends */}
+      <AuditSection title="Trend">
+        <div style={{ display: 'flex', gap: 10 }}>
+          <TrendBadge label="Short" trend={stock.shortTrend} />
+          <TrendBadge label="Long"  trend={stock.longTrend} />
+          <TrendBadge label="Aligned" trend={stock.trendAligned ? 'UP' : 'DOWN'} customLabel={stock.trendAligned ? 'YES' : 'NO'} />
+        </div>
+      </AuditSection>
+
+      {/* Support & Resistance */}
+      {(stock.supportLevels.length > 0 || stock.resistanceLevels.length > 0) && (
+        <AuditSection title="Support / Resistance">
+          {stock.resistanceLevels.length > 0 && (
+            <div style={{ marginBottom: 6 }}>
+              <div style={{ fontSize: 9, color: '#4a5268', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4, fontFamily: 'IBM Plex Sans, sans-serif' }}>Resistance</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {stock.resistanceLevels.map((lvl) => (
+                  <span key={lvl} style={{ padding: '3px 9px', borderRadius: 12, border: '1px solid #ef535060', background: 'rgba(239,83,80,0.08)', color: '#ef5350', fontSize: 11, fontFamily: 'IBM Plex Mono, monospace' }}>
+                    ${lvl.toFixed(2)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {stock.supportLevels.length > 0 && (
+            <div>
+              <div style={{ fontSize: 9, color: '#4a5268', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4, fontFamily: 'IBM Plex Sans, sans-serif' }}>Support</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {stock.supportLevels.map((lvl) => (
+                  <span key={lvl} style={{ padding: '3px 9px', borderRadius: 12, border: '1px solid #00d4aa60', background: 'rgba(0,212,170,0.08)', color: '#00d4aa', fontSize: 11, fontFamily: 'IBM Plex Mono, monospace' }}>
+                    ${lvl.toFixed(2)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </AuditSection>
+      )}
+
+      {/* Fibonacci levels */}
+      {stock.fibLevels.length > 0 && (
+        <AuditSection title="Fibonacci Retracement">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            {stock.fibLevels.map((f) => {
+              const isNearest = f.label === stock.nearestFibLabel;
+              const color = isNearest ? '#ffd700' : '#4a5268';
+              return (
+                <div key={f.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, color, fontFamily: 'IBM Plex Mono, monospace' }}>
+                    {isNearest ? '▶ ' : '  '}{f.label}
+                  </span>
+                  <span style={{ fontSize: 11, color, fontFamily: 'IBM Plex Mono, monospace', fontWeight: isNearest ? 600 : 400 }}>
+                    ${f.price.toFixed(2)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </AuditSection>
+      )}
+
+      {/* Warnings */}
+      {stock.audit.warnings.length > 0 && (
+        <AuditSection title="Warnings">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            {stock.audit.warnings.map((w, i) => (
+              <div key={i} style={{ fontSize: 12, color: '#ff7043', fontFamily: 'IBM Plex Sans, sans-serif', lineHeight: 1.4 }}>
+                ⚠ {w}
+              </div>
+            ))}
+          </div>
+        </AuditSection>
+      )}
+
+      {/* R/R ratio */}
+      {stock.riskRewardRatio > 0 && (
+        <AuditSection title="Risk / Reward">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{
+              fontSize: 22, fontWeight: 700, fontFamily: 'IBM Plex Mono, monospace',
+              color: stock.riskRewardRatio >= 2 ? '#00d4aa' : '#ffb300',
+            }}>
+              {stock.riskRewardRatio.toFixed(2)}x
+            </span>
+            <span style={{ fontSize: 11, color: '#4a5268', fontFamily: 'IBM Plex Sans, sans-serif' }}>
+              reward-to-risk
+            </span>
+          </div>
+        </AuditSection>
+      )}
+    </motion.div>
+  );
+}
+
+function AuditSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{
+        fontSize: 9, fontWeight: 700, color: '#4a5268',
+        letterSpacing: '0.1em', textTransform: 'uppercase',
+        marginBottom: 8, fontFamily: 'IBM Plex Sans, sans-serif',
+      }}>
+        {title}
+      </div>
+      {children}
+      <div style={{ height: 1, background: '#1a2030', marginTop: 12 }} />
+    </div>
+  );
+}
+
+function AuditStat({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <div style={{ padding: '6px 8px', background: '#0f1218', borderRadius: 6, border: '1px solid #1e2535' }}>
+      <div style={{ fontSize: 9, color: '#4a5268', fontFamily: 'IBM Plex Sans, sans-serif', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 2 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 13, color, fontFamily: 'IBM Plex Mono, monospace', fontWeight: 600 }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function TrendBadge({ label, trend, customLabel }: { label: string; trend: string; customLabel?: string }) {
+  const color = trend === 'UP' ? '#00d4aa' : trend === 'DOWN' ? '#ef5350' : '#ffb300';
+  const display = customLabel ?? trend;
+  return (
+    <div style={{
+      padding: '5px 10px', borderRadius: 8,
+      border: `1px solid ${color}40`,
+      background: `${color}12`,
+      textAlign: 'center',
+    }}>
+      <div style={{ fontSize: 9, color: '#4a5268', fontFamily: 'IBM Plex Sans, sans-serif', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 12, color, fontFamily: 'IBM Plex Mono, monospace', fontWeight: 600 }}>
+        {display}
+      </div>
+    </div>
+  );
+}
+
 // ── Card imperative handle ────────────────────────────────────────────────────
 
 interface CardHandle {
@@ -122,7 +468,8 @@ const StockCard = forwardRef<CardHandle, {
   stock: ProcessedStock;
   onSwipeLeft: () => void;
   onSwipeRight: () => void;
-}>(function StockCard({ stock, onSwipeLeft, onSwipeRight }, ref) {
+  onShowAudit: () => void;
+}>(function StockCard({ stock, onSwipeLeft, onSwipeRight, onShowAudit }, ref) {
   const controls = useAnimation();
   const x        = useMotionValue(0);
 
@@ -131,20 +478,19 @@ const StockCard = forwardRef<CardHandle, {
     controls.start({ opacity: 1, scale: 1, transition: { type: 'spring', stiffness: 300, damping: 26 } });
   }, [controls]);
 
-  const rotate       = useTransform(x, [-220, 220], [-13, 13]);
-  const skipOpacity  = useTransform(x, [-100, -30], [1, 0]);
-  const saveOpacity  = useTransform(x, [30, 100], [0, 1]);
+  const rotate      = useTransform(x, [-220, 220], [-13, 13]);
+  const skipOpacity = useTransform(x, [-100, -30], [1, 0]);
+  const saveOpacity = useTransform(x, [30, 100], [0, 1]);
 
   const verdictType  = stock.verdictType as VerdictType;
   const verdictColor = VERDICT_COLORS[verdictType];
 
-  const aboveSma50  = stock.price >= (stock.indicators?.sma50 ?? 0);
-  const aboveSma200 = stock.price >= (stock.indicators?.sma200 ?? 0);
-  const rsi         = stock.indicators?.rsi14 ?? 0;
-  const rsiColor    = rsi < 50 ? '#00d4aa' : rsi < 70 ? '#ffb300' : '#ef5350';
-  const smaPct      = stock.indicators?.smaProximityPct ?? 0;
-  const changeSign  = stock.change >= 0 ? '+' : '';
-  const changeColor = stock.change >= 0 ? '#00d4aa' : '#ef5350';
+  const aboveSma200  = stock.price >= (stock.indicators?.sma200 ?? 0);
+  const rsi          = stock.indicators?.rsi14 ?? 0;
+  const rsiColor     = rsi < 50 ? '#00d4aa' : rsi < 70 ? '#ffb300' : '#ef5350';
+  const smaPct       = stock.indicators?.smaProximityPct ?? 0;
+  const changeSign   = stock.change >= 0 ? '+' : '';
+  const changeColor  = stock.change >= 0 ? '#00d4aa' : '#ef5350';
 
   const animateLeft = async () => {
     await controls.start({ x: -640, opacity: 0, rotate: -22, transition: { duration: 0.26, ease: 'easeIn' } });
@@ -157,16 +503,24 @@ const StockCard = forwardRef<CardHandle, {
   };
 
   const handleDragEnd = async (_: PointerEvent, info: PanInfo) => {
-    if (info.offset.x > SWIPE_THRESHOLD)       await animateRight();
-    else if (info.offset.x < -SWIPE_THRESHOLD) await animateLeft();
+    const { offset } = info;
+    // Vertical upward drag takes priority when it is the dominant axis
+    if (Math.abs(offset.y) > Math.abs(offset.x) && offset.y < -SWIPE_UP_THRESHOLD) {
+      controls.start({ x: 0, rotate: 0, transition: { type: 'spring', stiffness: 400, damping: 28 } });
+      onShowAudit();
+      return;
+    }
+    if (offset.x > SWIPE_THRESHOLD)       await animateRight();
+    else if (offset.x < -SWIPE_THRESHOLD) await animateLeft();
     else controls.start({ x: 0, rotate: 0, transition: { type: 'spring', stiffness: 400, damping: 28 } });
   };
 
-  // Expose swipe triggers so the external pill buttons can use them
   useImperativeHandle(ref, () => ({
     triggerSwipeLeft:  animateLeft,
     triggerSwipeRight: animateRight,
   }));
+
+  const onKeySma = stock.priceOnSma150 || stock.priceOnSma200;
 
   return (
     <motion.div
@@ -179,7 +533,7 @@ const StockCard = forwardRef<CardHandle, {
         right: 0,
         bottom: 0,
         left: 0,
-        background: VERDICT_GRADIENTS[verdictType],
+        background: getCardBackground(stock),
         border: '1px solid #1e2535',
         overflow: 'hidden',
         cursor: 'grab',
@@ -187,14 +541,13 @@ const StockCard = forwardRef<CardHandle, {
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        // Extra bottom padding so content clears the action buttons
         padding: '20px 20px 148px',
         gap: 14,
         touchAction: 'none',
         overflowY: 'auto',
       }}
-      drag="x"
-      dragConstraints={{ left: 0, right: 0 }}
+      drag
+      dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
       dragElastic={0.55}
       onDragEnd={handleDragEnd}
       whileTap={{ cursor: 'grabbing' }}
@@ -222,6 +575,13 @@ const StockCard = forwardRef<CardHandle, {
         SAVE 🔖
       </motion.div>
 
+      {/* Swipe-up hint */}
+      <div style={{ position: 'absolute', bottom: 144, left: 0, right: 0, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+        <span style={{ fontSize: 9, color: '#252d40', fontFamily: 'IBM Plex Sans, sans-serif', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+          ↑ swipe up for full audit
+        </span>
+      </div>
+
       {/* Ticker + company header */}
       <div style={{ textAlign: 'center', marginTop: 8 }}>
         <div style={{ fontSize: 28, fontWeight: 700, color: '#e8eaf0', fontFamily: 'IBM Plex Mono, monospace', letterSpacing: '0.04em' }}>
@@ -240,8 +600,11 @@ const StockCard = forwardRef<CardHandle, {
         </div>
       </div>
 
+      {/* Key SMA badge — only shown when price is on SMA150 or SMA200 */}
+      {onKeySma && <KeySmaBadge />}
+
       {/* Price Orb */}
-      <PriceOrb price={stock.price} sma50={stock.indicators?.sma50 ?? 0} />
+      <PriceOrb stock={stock} />
 
       {/* Mini Orbs */}
       <div style={{ display: 'flex', gap: 14, justifyContent: 'center' }}>
@@ -250,12 +613,15 @@ const StockCard = forwardRef<CardHandle, {
         <MiniOrb label="Floor"      value={stock.floor}     color="#ef5350" />
       </div>
 
+      {/* SMA pills row */}
+      <SmaPillsRow stock={stock} />
+
       {/* Indicator badges */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, justifyContent: 'center' }}>
         <PillBadge
-          label={`SMA50 ${aboveSma50 ? '▲' : '▼'} ${smaPct > 0 ? '+' : ''}${smaPct.toFixed(1)}%`}
-          color={aboveSma50 ? '#00d4aa' : '#ef5350'}
-          bg={aboveSma50 ? 'rgba(0,212,170,0.08)' : 'rgba(239,83,80,0.08)'}
+          label={`SMA50 ${stock.price >= stock.indicators.sma50 ? '▲' : '▼'} ${smaPct > 0 ? '+' : ''}${smaPct.toFixed(1)}%`}
+          color={stock.price >= stock.indicators.sma50 ? '#00d4aa' : '#ef5350'}
+          bg={stock.price >= stock.indicators.sma50 ? 'rgba(0,212,170,0.08)' : 'rgba(239,83,80,0.08)'}
         />
         <PillBadge
           label={`SMA200 ${aboveSma200 ? '▲' : '▼'}`}
@@ -269,6 +635,12 @@ const StockCard = forwardRef<CardHandle, {
         />
         {stock.wick.hasAggressiveBuySignal && (
           <PillBadge label="🔥 Wick Signal" color="#00d4aa" bg="rgba(0,212,170,0.1)" />
+        )}
+        {stock.volumeConfirmed && (
+          <PillBadge label="✓ Vol Confirmed" color="#4fc3f7" bg="rgba(79,195,247,0.08)" />
+        )}
+        {stock.trendAligned && (
+          <PillBadge label="⬆ Trend Aligned" color="#00e676" bg="rgba(0,230,118,0.08)" />
         )}
       </div>
 
@@ -373,21 +745,33 @@ function DoneScreen({ total, savedCount, onReset }: { total: number; savedCount:
 export default function StockMobileView() {
   useSignalRConnection();
 
-  const { stocks, isLoading } = useTerminalStore();
-  const [index, setIndex]     = useState(0);
-  const [saved, setSaved]     = useState<Set<string>>(new Set());
+  const { stocks, isLoading }     = useTerminalStore();
+  const { settings, update }      = useUserSettings();
+  const [index, setIndex]         = useState(0);
+  const [saved, setSaved]         = useState<Set<string>>(new Set());
   const [showSaved, setShowSaved] = useState(false);
+  const [showAudit, setShowAudit] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
-  // Ref to imperatively trigger card swipe animations from the pill buttons
   const cardRef = useRef<CardHandle>(null);
 
-  const handleSwipeLeft  = () => setIndex((i) => i + 1);
+  // Sort stocks by signal score so best opportunities appear first
+  const sortedStocks = useMemo(
+    () => [...stocks].sort((a, b) => scoreStock(b) - scoreStock(a)),
+    [stocks]
+  );
+
+  const handleSwipeLeft = () => {
+    setShowAudit(false);
+    setIndex((i) => i + 1);
+  };
   const handleSwipeRight = () => {
-    if (stocks[index]) setSaved((prev) => new Set([...prev, stocks[index].ticker]));
+    if (sortedStocks[index]) setSaved((prev) => new Set([...prev, sortedStocks[index].ticker]));
+    setShowAudit(false);
     setIndex((i) => i + 1);
   };
 
-  const reset = () => { setIndex(0); setSaved(new Set()); setShowSaved(false); };
+  const reset = () => { setIndex(0); setSaved(new Set()); setShowSaved(false); setShowAudit(false); };
 
   // Loading state
   if (isLoading || stocks.length === 0) {
@@ -395,37 +779,34 @@ export default function StockMobileView() {
       <div style={{
         position: 'fixed', top: 0, left: 0,
         width: '100vw', height: '100dvh',
-        margin: 0, padding: 0, overflow: 'hidden',
         background: '#0a0c0f',
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14,
       }}>
+        <MobileAnimationStyles />
         <div style={{ width: 26, height: 26, borderRadius: '50%', border: '2px solid #1e2535', borderTopColor: '#00d4aa', animation: 'spin 0.8s linear infinite' }} />
         <span style={{ color: '#4a5268', fontSize: 13, fontFamily: 'IBM Plex Sans, sans-serif' }}>
           Connecting to data stream...
         </span>
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
   }
 
-  const isDone   = index >= stocks.length;
-  const progress = Math.min((index / stocks.length) * 100, 100);
+  const isDone        = index >= sortedStocks.length;
+  const currentStock  = sortedStocks[index];
+  const progress      = Math.min((index / sortedStocks.length) * 100, 100);
 
   return (
     <div style={{
       position: 'fixed',
-      top: 0,
-      left: 0,
-      margin: 0,
-      padding: 0,
-      width: '100vw',
-      height: '100dvh',
+      top: 0, left: 0,
+      margin: 0, padding: 0,
+      width: '100vw', height: '100dvh',
       overflow: 'hidden',
       background: '#0a0c0f',
-      display: 'flex',
-      flexDirection: 'column',
+      display: 'flex', flexDirection: 'column',
       fontFamily: 'IBM Plex Sans, sans-serif',
     }}>
+      <MobileAnimationStyles />
 
       {/* Header */}
       <div style={{
@@ -442,7 +823,7 @@ export default function StockMobileView() {
           </div>
           <span style={{ fontSize: 13, fontWeight: 500, color: '#e8eaf0' }}>Stock Swiper</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {saved.size > 0 && (
             <button
               onClick={() => setShowSaved((v) => !v)}
@@ -452,8 +833,15 @@ export default function StockMobileView() {
             </button>
           )}
           <span style={{ fontSize: 11, color: '#4a5268', fontFamily: 'IBM Plex Mono, monospace' }}>
-            {isDone ? stocks.length : index + 1}/{stocks.length}
+            {isDone ? sortedStocks.length : index + 1}/{sortedStocks.length}
           </span>
+          {/* Settings gear */}
+          <button
+            onClick={() => setShowSettings(true)}
+            style={{ background: 'transparent', border: '1px solid #252d40', borderRadius: 6, color: '#8a93a8', fontSize: 14, padding: '4px 8px', cursor: 'pointer', lineHeight: 1 }}
+          >
+            ⚙
+          </button>
         </div>
       </div>
 
@@ -469,28 +857,23 @@ export default function StockMobileView() {
       {/* Saved overlay */}
       <AnimatePresence>
         {showSaved && (
-          <SavedOverlay saved={saved} stocks={stocks} onClose={() => setShowSaved(false)} />
+          <SavedOverlay saved={saved} stocks={sortedStocks} onClose={() => setShowSaved(false)} />
         )}
       </AnimatePresence>
 
-      {/* Card stack — fills all remaining space, no padding */}
-      <div style={{
-        flex: 1,
-        position: 'relative',
-        overflow: 'hidden',
-        touchAction: 'none',
-      }}>
+      {/* Card stack */}
+      <div style={{ flex: 1, position: 'relative', overflow: 'hidden', touchAction: 'none' }}>
         {isDone ? (
-          <DoneScreen total={stocks.length} savedCount={saved.size} onReset={reset} />
+          <DoneScreen total={sortedStocks.length} savedCount={saved.size} onReset={reset} />
         ) : (
           <>
-            {/* Peek card — decorative, no interaction */}
-            {stocks[index + 1] && (
+            {/* Peek card — decorative */}
+            {sortedStocks[index + 1] && (
               <div style={{
                 position: 'absolute',
                 top: 10, right: 10, bottom: 10, left: 10,
                 borderRadius: 16,
-                background: VERDICT_GRADIENTS[stocks[index + 1].verdictType as VerdictType],
+                background: VERDICT_GRADIENTS[sortedStocks[index + 1].verdictType as VerdictType],
                 border: '1px solid #1a2030',
                 transform: 'scale(0.94)',
                 opacity: 0.45,
@@ -501,17 +884,24 @@ export default function StockMobileView() {
             <StockCard
               ref={cardRef}
               key={index}
-              stock={stocks[index]}
+              stock={currentStock}
               onSwipeLeft={handleSwipeLeft}
               onSwipeRight={handleSwipeRight}
+              onShowAudit={() => setShowAudit(true)}
             />
 
-            {/* Action buttons — fixed at bottom, outside the draggable card */}
+            {/* Full audit overlay — slides up from bottom of card stack */}
+            <AnimatePresence>
+              {showAudit && currentStock && (
+                <AuditOverlay stock={currentStock} onClose={() => setShowAudit(false)} />
+              )}
+            </AnimatePresence>
+
+            {/* Action buttons */}
             <div style={{
               position: 'absolute',
               bottom: 48,
-              left: 0,
-              right: 0,
+              left: 0, right: 0,
               display: 'flex',
               justifyContent: 'center',
               alignItems: 'center',
@@ -524,18 +914,13 @@ export default function StockMobileView() {
                 onClick={() => cardRef.current?.triggerSwipeLeft()}
                 style={{
                   pointerEvents: 'auto',
-                  height: 56,
-                  minWidth: 140,
+                  height: 56, minWidth: 140,
                   background: '#ef5350',
-                  color: '#ffffff',
-                  fontWeight: 700,
-                  fontSize: 18,
-                  border: 'none',
-                  borderRadius: 50,
+                  color: '#ffffff', fontWeight: 700, fontSize: 18,
+                  border: 'none', borderRadius: 50,
                   boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
                   cursor: 'pointer',
-                  fontFamily: 'IBM Plex Sans, sans-serif',
-                  letterSpacing: '0.04em',
+                  fontFamily: 'IBM Plex Sans, sans-serif', letterSpacing: '0.04em',
                 }}
               >
                 SKIP
@@ -545,18 +930,13 @@ export default function StockMobileView() {
                 onClick={() => cardRef.current?.triggerSwipeRight()}
                 style={{
                   pointerEvents: 'auto',
-                  height: 56,
-                  minWidth: 140,
+                  height: 56, minWidth: 140,
                   background: '#00d4aa',
-                  color: '#000000',
-                  fontWeight: 700,
-                  fontSize: 18,
-                  border: 'none',
-                  borderRadius: 50,
+                  color: '#000000', fontWeight: 700, fontSize: 18,
+                  border: 'none', borderRadius: 50,
                   boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
                   cursor: 'pointer',
-                  fontFamily: 'IBM Plex Sans, sans-serif',
-                  letterSpacing: '0.04em',
+                  fontFamily: 'IBM Plex Sans, sans-serif', letterSpacing: '0.04em',
                 }}
               >
                 SAVE 🔖
@@ -565,6 +945,17 @@ export default function StockMobileView() {
           </>
         )}
       </div>
+
+      {/* Settings bottom sheet */}
+      <AnimatePresence>
+        {showSettings && (
+          <UserSettingsSheet
+            settings={settings}
+            onUpdate={update}
+            onClose={() => setShowSettings(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
