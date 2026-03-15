@@ -143,6 +143,8 @@ function PriceOrb({ stock }: { stock: ProcessedStock }) {
   const color = getPriceOrbColor(stock);
   const animation = getPriceOrbAnimation(stock);
   const aboveSma50 = stock.price >= (stock.indicators?.sma50 ?? 0);
+  const changeColor = stock.changePercent >= 0 ? '#00d4aa' : '#ef5350';
+  const changeSign  = stock.changePercent >= 0 ? '+' : '';
 
   return (
     <div style={{
@@ -167,6 +169,9 @@ function PriceOrb({ stock }: { stock: ProcessedStock }) {
       </span>
       <span style={{ fontSize: 10, color: `${color}88`, fontFamily: 'IBM Plex Mono, monospace' }}>
         {aboveSma50 ? '▲ above SMA50' : '▼ below SMA50'}
+      </span>
+      <span style={{ fontSize: 13, fontWeight: 600, color: changeColor, display: 'block', marginTop: 2, fontFamily: 'IBM Plex Mono, monospace' }}>
+        {changeSign}{stock.changePercent.toFixed(2)}%
       </span>
     </div>
   );
@@ -516,6 +521,39 @@ function AuditOverlay({
                 <AuditStat label="Buy Target"   value={`$${stock.buyTarget.toFixed(2)}`}            color="#00d4aa" />
               </div>
             </AuditSection>
+            {/* Fibonacci levels — moved here from Audit tab */}
+            {stock.fibLevels.length > 0 && (
+              <AuditSection title="Fibonacci Retracement">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  {stock.fibLevels.map((f) => {
+                    const isNearest = stock.nearFibLevel?.label === f.label;
+                    const color = isNearest ? '#ffb300' : '#4a5268';
+                    return (
+                      <div key={f.label} style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: isNearest ? '4px 6px' : '0',
+                        borderRadius: 4,
+                        background: isNearest ? 'rgba(255,179,0,0.12)' : 'transparent',
+                      }}>
+                        <span style={{ fontSize: 11, color, fontFamily: 'IBM Plex Mono, monospace' }}>
+                          {isNearest ? '▶ ' : '  '}{f.label}
+                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {isNearest && stock.nearFibLevel && (
+                            <span style={{ fontSize: 9, color: '#ffb30080', fontFamily: 'IBM Plex Sans, sans-serif' }}>
+                              ← you are here ({stock.nearFibLevel.distance.toFixed(1)}%)
+                            </span>
+                          )}
+                          <span style={{ fontSize: 11, color, fontFamily: 'IBM Plex Mono, monospace', fontWeight: isNearest ? 600 : 400 }}>
+                            ${f.price.toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </AuditSection>
+            )}
           </>
         )}
 
@@ -645,40 +683,6 @@ function AuditOverlay({
               </AuditSection>
             )}
 
-            {/* Fibonacci levels — S/R removed (shown on main card only) */}
-            {stock.fibLevels.length > 0 && (
-              <AuditSection title="Fibonacci Retracement">
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                  {stock.fibLevels.map((f) => {
-                    const isNearest = stock.nearFibLevel?.label === f.label;
-                    const color = isNearest ? '#ffd700' : '#4a5268';
-                    return (
-                      <div key={f.label} style={{
-                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                        padding: isNearest ? '4px 6px' : '0',
-                        borderRadius: 4,
-                        background: isNearest ? 'rgba(255,215,0,0.08)' : 'transparent',
-                      }}>
-                        <span style={{ fontSize: 11, color, fontFamily: 'IBM Plex Mono, monospace' }}>
-                          {isNearest ? '▶ ' : '  '}{f.label}
-                        </span>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          {isNearest && stock.nearFibLevel && (
-                            <span style={{ fontSize: 9, color: '#ffd70080', fontFamily: 'IBM Plex Sans, sans-serif' }}>
-                              ← you are here ({stock.nearFibLevel.distance.toFixed(1)}%)
-                            </span>
-                          )}
-                          <span style={{ fontSize: 11, color, fontFamily: 'IBM Plex Mono, monospace', fontWeight: isNearest ? 600 : 400 }}>
-                            ${f.price.toFixed(2)}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </AuditSection>
-            )}
-
           </>
         )}
       </div>
@@ -797,8 +801,6 @@ const StockCard = forwardRef<CardHandle, {
 
   const rsi          = stock.indicators?.rsi14 ?? 0;
   const rsiColor     = rsi < 50 ? '#00d4aa' : rsi < 70 ? '#ffb300' : '#ef5350';
-  const changeSign   = stock.change >= 0 ? '+' : '';
-  const changeColor  = stock.change >= 0 ? '#00d4aa' : '#ef5350';
 
   const animateLeft = async () => {
     await controls.start({ x: -640, opacity: 0, rotate: -22, transition: { duration: 0.26, ease: 'easeIn' } });
@@ -904,13 +906,6 @@ const StockCard = forwardRef<CardHandle, {
             </span>
           );
         })()}
-      </div>
-
-      {/* Change% — absolute top-right, leaves space for SAVE label */}
-      <div style={{ position: 'absolute', top: 12, right: 48, pointerEvents: 'none' }}>
-        <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'IBM Plex Mono, monospace', color: changeColor }}>
-          {changeSign}{stock.changePercent.toFixed(2)}%
-        </span>
       </div>
 
       {/* Ticker + company name — centered, no sector row */}
