@@ -7,6 +7,7 @@ type MockBase = Omit<
   | 'lastUpdated' | 'priceOnSma150' | 'priceOnSma200' | 'volumeConfirmed' | 'volumeSpike'
   | 'shortTrend' | 'longTrend' | 'trendAligned' | 'nearBuyTarget' | 'nearStop'
   | 'supportLevels' | 'resistanceLevels' | 'fibLevels' | 'nearestFibLabel' | 'riskRewardRatio'
+  | 'fearGreedValue' | 'fearGreedLabel'
   | 'indicators'
 > & {
   indicators: Omit<ProcessedStock['indicators'], 'sma20' | 'sma150'>;
@@ -31,6 +32,7 @@ const MOCK_STOCKS: MockBase[] = [
     wick: { lowerWick: 1.85, upperWick: 0.42, hasAggressiveBuySignal: true },
     audit: { isOverbought: false, isOverextended: false, isWeakMomentum: false, warnings: [] },
     pattern: { hasDoubleBottom: true, hasDoubleTop: false, patternLevel: 70.50, patternDescription: 'Double Bottom at 70.50 – confirmed buyers zone' },
+    peRatio: 15.2,
   },
   {
     ticker: 'NVDA',
@@ -50,6 +52,7 @@ const MOCK_STOCKS: MockBase[] = [
     wick: { lowerWick: 0.92, upperWick: 2.40, hasAggressiveBuySignal: false },
     audit: { isOverbought: true, isOverextended: true, isWeakMomentum: false, warnings: ['RSI > 70 — Overbought', 'Price >12% above SMA50 — Overextended'] },
     pattern: { hasDoubleBottom: false, hasDoubleTop: false, patternLevel: null, patternDescription: null },
+    peRatio: 45.1,
   },
   {
     ticker: 'GE',
@@ -69,6 +72,7 @@ const MOCK_STOCKS: MockBase[] = [
     wick: { lowerWick: 0.55, upperWick: 3.80, hasAggressiveBuySignal: false },
     audit: { isOverbought: false, isOverextended: false, isWeakMomentum: true, warnings: ['Volume < 5-day avg — Weak Momentum'] },
     pattern: { hasDoubleBottom: false, hasDoubleTop: true, patternLevel: 310.00, patternDescription: 'Double Top at 310.00 — distribution pattern' },
+    peRatio: 28.4,
   },
   {
     ticker: 'GOOGL',
@@ -88,6 +92,7 @@ const MOCK_STOCKS: MockBase[] = [
     wick: { lowerWick: 2.10, upperWick: 0.80, hasAggressiveBuySignal: true },
     audit: { isOverbought: false, isOverextended: false, isWeakMomentum: false, warnings: [] },
     pattern: { hasDoubleBottom: true, hasDoubleTop: false, patternLevel: 295.00, patternDescription: 'Double Bottom at 295.00 — strong structural floor' },
+    peRatio: 22.8,
   },
   {
     ticker: 'INTC',
@@ -107,6 +112,7 @@ const MOCK_STOCKS: MockBase[] = [
     wick: { lowerWick: 0.28, upperWick: 1.95, hasAggressiveBuySignal: false },
     audit: { isOverbought: false, isOverextended: false, isWeakMomentum: true, warnings: ['Volume < 5-day avg — Weak Momentum', 'Below SMA50 and SMA200 — Bearish trend'] },
     pattern: { hasDoubleBottom: false, hasDoubleTop: false, patternLevel: null, patternDescription: null },
+    peRatio: null,
   },
   {
     ticker: 'MSFT',
@@ -126,6 +132,7 @@ const MOCK_STOCKS: MockBase[] = [
     wick: { lowerWick: 3.10, upperWick: 1.05, hasAggressiveBuySignal: true },
     audit: { isOverbought: false, isOverextended: false, isWeakMomentum: false, warnings: [] },
     pattern: { hasDoubleBottom: false, hasDoubleTop: false, patternLevel: null, patternDescription: null },
+    peRatio: 32.1,
   },
   {
     ticker: 'JPM',
@@ -145,6 +152,7 @@ const MOCK_STOCKS: MockBase[] = [
     wick: { lowerWick: 1.60, upperWick: 0.70, hasAggressiveBuySignal: false },
     audit: { isOverbought: false, isOverextended: false, isWeakMomentum: false, warnings: [] },
     pattern: { hasDoubleBottom: true, hasDoubleTop: false, patternLevel: 210.00, patternDescription: 'Double Bottom at 210.00 — strong buyers zone' },
+    peRatio: 12.4,
   },
   {
     ticker: 'XOM',
@@ -164,6 +172,7 @@ const MOCK_STOCKS: MockBase[] = [
     wick: { lowerWick: 2.85, upperWick: 0.40, hasAggressiveBuySignal: true },
     audit: { isOverbought: false, isOverextended: false, isWeakMomentum: false, warnings: [] },
     pattern: { hasDoubleBottom: false, hasDoubleTop: false, patternLevel: null, patternDescription: null },
+    peRatio: 14.2,
   },
   {
     ticker: 'TSLA',
@@ -183,6 +192,7 @@ const MOCK_STOCKS: MockBase[] = [
     wick: { lowerWick: 4.20, upperWick: 6.80, hasAggressiveBuySignal: false },
     audit: { isOverbought: false, isOverextended: false, isWeakMomentum: true, warnings: ['Volume < 5-day avg — Weak Momentum'] },
     pattern: { hasDoubleBottom: false, hasDoubleTop: false, patternLevel: null, patternDescription: null },
+    peRatio: 68.5,
   },
   {
     ticker: 'META',
@@ -202,6 +212,7 @@ const MOCK_STOCKS: MockBase[] = [
     wick: { lowerWick: 2.90, upperWick: 1.40, hasAggressiveBuySignal: false },
     audit: { isOverbought: false, isOverextended: false, isWeakMomentum: false, warnings: [] },
     pattern: { hasDoubleBottom: false, hasDoubleTop: false, patternLevel: null, patternDescription: null },
+    peRatio: 26.3,
   },
 ];
 
@@ -285,6 +296,8 @@ export function getMockStocks(): ProcessedStock[] {
       trendAligned,
       nearBuyTarget,
       nearStop,
+      fearGreedValue: 48,
+      fearGreedLabel: 'Fear',
       supportLevels: [s.stop, s.floor].filter(Boolean),
       resistanceLevels: [
         parseFloat((s.indicators.sma50 * 1.05).toFixed(2)),
@@ -327,6 +340,8 @@ export function getMockStockUpdate(ticker: string): ProcessedStock | undefined {
     trendAligned: shortTrend === 'UP' && longTrend === 'UP',
     nearBuyTarget: Math.abs(newPrice - base.buyTarget) / base.buyTarget * 100 <= 2.5,
     nearStop: Math.abs(newPrice - base.stop) / base.stop * 100 <= 1.5,
+    fearGreedValue: 48,
+    fearGreedLabel: 'Fear',
     supportLevels: [base.stop, base.floor].filter(Boolean),
     resistanceLevels: [
       parseFloat((base.indicators.sma50 * 1.05).toFixed(2)),

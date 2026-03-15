@@ -10,7 +10,7 @@ import {
   findNearestFibLabel,
   computeSupportResistance,
 } from '../indicators/analysis.js';
-import { getHistoricalBars, getLiveQuotes } from './fmp-provider.js';
+import { getHistoricalBars, getLiveQuotes, getFearGreedIndex } from './fmp-provider.js';
 
 /** Metadata for default portfolio */
 export const PORTFOLIO_META: Record<string, { name: string; sector: string; strategy: string }> = {
@@ -34,7 +34,8 @@ const notifyPrefs: Record<string, boolean> = {};
  */
 export async function processStock(
   ticker: string,
-  liveQuotes?: Record<string, { price: number; change: number; changePercent: number; volume: number; avgVolume: number }>
+  liveQuotes?: Record<string, { price: number; change: number; changePercent: number; volume: number; avgVolume: number; trailingPE?: number | null }>,
+  fearGreed?: { value: number; label: string }
 ): Promise<ProcessedStock | null> {
   try {
     const meta = PORTFOLIO_META[ticker.toUpperCase()];
@@ -91,6 +92,10 @@ export async function processStock(
     const { support: supportLevels, resistance: resistanceLevels } =
       computeSupportResistance(enrichedBars, 120);
 
+    // Valuation & sentiment (PE comes from batch quote, F&G cached hourly)
+    const peRatio = liveQuotes?.[ticker]?.trailingPE ?? null;
+    const resolvedFearGreed = fearGreed ?? await getFearGreedIndex();
+
     // Risk/reward: reward = 2×ATR above entry, risk = buyTarget - stop
     const riskRewardRatio = (buyTarget - stop) > 0
       ? parseFloat(((indicators.atr14 * 2) / (buyTarget - stop)).toFixed(2))
@@ -117,6 +122,9 @@ export async function processStock(
       audit,
       pattern,
       lastUpdated: new Date().toISOString(),
+      peRatio,
+      fearGreedValue: resolvedFearGreed.value,
+      fearGreedLabel: resolvedFearGreed.label,
       priceOnSma150,
       priceOnSma200,
       volumeConfirmed,
@@ -143,11 +151,14 @@ export async function processStock(
  * This is the main function called every minute.
  */
 export async function processBatch(tickers: string[]): Promise<ProcessedStock[]> {
-  // Single batch request for all live quotes
-  const rawQuotes = await getLiveQuotes(tickers);
+  // Fetch quotes and Fear & Greed in parallel — both are batch/cached operations
+  const [rawQuotes, fearGreed] = await Promise.all([
+    getLiveQuotes(tickers),
+    getFearGreedIndex(),
+  ]);
 
-  // Map to simplified format
-  const liveQuotes: Record<string, { price: number; change: number; changePercent: number; volume: number; avgVolume: number }> = {};
+  // Map to simplified format, including trailingPE from the batch quote
+  const liveQuotes: Record<string, { price: number; change: number; changePercent: number; volume: number; avgVolume: number; trailingPE?: number | null }> = {};
   Object.entries(rawQuotes).forEach(([ticker, q]) => {
     liveQuotes[ticker] = {
       price: q.price,
@@ -155,12 +166,13 @@ export async function processBatch(tickers: string[]): Promise<ProcessedStock[]>
       changePercent: q.changesPercentage,
       volume: q.volume,
       avgVolume: q.avgVolume,
+      trailingPE: q.trailingPE ?? null,
     };
   });
 
-  // Process all tickers in parallel (history is cached)
+  // Process all tickers in parallel — fear & greed shared, history is cached
   const results = await Promise.all(
-    tickers.map((t) => processStock(t, liveQuotes))
+    tickers.map((t) => processStock(t, liveQuotes, fearGreed))
   );
 
   return results.filter((s): s is ProcessedStock => s !== null);

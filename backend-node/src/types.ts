@@ -68,6 +68,11 @@ export interface ProcessedStock {
   pattern: PatternDetection;
   lastUpdated: string;
 
+  // Valuation & sentiment
+  peRatio: number | null;
+  fearGreedValue: number;
+  fearGreedLabel: string;
+
   // Signal enrichment fields
   priceOnSma150: boolean;
   priceOnSma200: boolean;

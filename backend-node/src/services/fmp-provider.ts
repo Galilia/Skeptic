@@ -80,6 +80,7 @@ export async function getLiveQuotes(tickers: string[]): Promise<Record<string, a
           changesPercentage: q.regularMarketChangePercent,
           volume: q.regularMarketVolume,
           avgVolume: q.averageDailyVolume3Month,
+          trailingPE: typeof q.trailingPE === 'number' ? q.trailingPE : null,
         };
       }
     });
@@ -94,4 +95,32 @@ export async function getLiveQuotes(tickers: string[]): Promise<Record<string, a
 
 export function clearHistoryCache(ticker: string): void {
   historyCache.del(`hist_${ticker}`);
+}
+
+// ── Fear & Greed Index ────────────────────────────────────────────────────────
+
+const fngCache = new NodeCache({ stdTTL: 3600 }); // refresh once per hour
+
+/**
+ * Fetch the Crypto Fear & Greed Index from alternative.me.
+ * Returns a cached result for up to 1 hour.
+ */
+export async function getFearGreedIndex(): Promise<{ value: number; label: string }> {
+  const cached = fngCache.get<{ value: number; label: string }>('fear_greed');
+  if (cached) return cached;
+
+  try {
+    const res  = await fetch('https://api.alternative.me/fng/');
+    const json = await res.json() as { data: Array<{ value: string; value_classification: string }> };
+    const item = json.data?.[0];
+    const result = {
+      value: parseInt(item?.value ?? '50', 10),
+      label: item?.value_classification ?? 'Neutral',
+    };
+    fngCache.set('fear_greed', result);
+    return result;
+  } catch {
+    // Return neutral on network failure — non-critical data
+    return { value: 50, label: 'Neutral' };
+  }
 }

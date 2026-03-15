@@ -101,6 +101,11 @@ export interface ProcessedStock {
   /** ISO timestamp of last update */
   lastUpdated: string;
 
+  // Valuation & sentiment
+  peRatio: number | null;
+  fearGreedValue: number;
+  fearGreedLabel: string;
+
   // Signal enrichment fields
   priceOnSma150: boolean;
   priceOnSma200: boolean;
