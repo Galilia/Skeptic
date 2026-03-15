@@ -153,6 +153,15 @@ export interface ProcessedStock {
 
   // Pre-computed red flags for the audit overlay
   redFlags: string[];
+
+  // Next earnings date from Yahoo calendarEvents
+  nextEarningsDate: string | null;
+  earningsInDays: number | null;
+  earningsWarning: boolean;
+
+  // Insider activity from Yahoo insiderTransactions
+  insiderSentiment: 'BUYING' | 'SELLING' | 'NEUTRAL' | null;
+  recentInsiderActivity: string | null;
 }
 
 export interface StockFilter {

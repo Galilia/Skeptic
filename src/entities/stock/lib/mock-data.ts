@@ -12,6 +12,8 @@ type MockBase = Omit<
   | 'stopAtrMultiplier'
   | 'redFlags'
   | 'indicators'
+  | 'nextEarningsDate' | 'earningsInDays' | 'earningsWarning'
+  | 'insiderSentiment' | 'recentInsiderActivity'
 > & {
   indicators: Omit<ProcessedStock['indicators'], 'sma20' | 'sma150'>;
 };
@@ -359,6 +361,11 @@ export function getMockStocks(): ProcessedStock[] {
       analystCount: Math.floor(Math.random() * 20) + 5,
       stopAtrMultiplier,
       redFlags,
+      nextEarningsDate: null,
+      earningsInDays: null,
+      earningsWarning: false,
+      insiderSentiment: null,
+      recentInsiderActivity: null,
     };
   });
 }
@@ -418,6 +425,11 @@ export function getMockStockUpdate(ticker: string): ProcessedStock | undefined {
     analystCount: 0,
     stopAtrMultiplier: base.indicators.smaProximityPct > 5 ? 1.5 : 1.0,
     redFlags: computeMockRedFlags(base, trendAligned, resistanceLevels, newPrice),
+    nextEarningsDate: null,
+    earningsInDays: null,
+    earningsWarning: false,
+    insiderSentiment: null,
+    recentInsiderActivity: null,
   };
 }
 

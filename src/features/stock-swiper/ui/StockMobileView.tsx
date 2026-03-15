@@ -29,6 +29,15 @@ const VERDICT_GRADIENTS: Record<VerdictType, string> = {
   DANGER:     'linear-gradient(180deg, #1a0404 0%, #0a0c0f 65%)',
 };
 
+// ── Sector relative strength ──────────────────────────────────────────────────
+
+function getSectorVerdict(stockChange: number, sectorChange: number): { label: string; color: string } {
+  const diff = stockChange - sectorChange;
+  if (diff > 1.5)  return { label: 'OUTPERFORM', color: '#00d4aa' };
+  if (diff < -1.5) return { label: 'UNDERPERFORM', color: '#ef5350' };
+  return { label: 'INLINE', color: '#4a5268' };
+}
+
 // ── Signal helpers ─────────────────────────────────────────────────────────────
 
 function isStrongEntry(stock: ProcessedStock) {
@@ -551,6 +560,51 @@ function AuditOverlay({
               </AuditSection>
             )}
 
+            {/* Next Earnings Date */}
+            {stock.nextEarningsDate && (
+              <AuditSection title="Next Earnings">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{
+                    fontSize: 14, fontWeight: 700, fontFamily: 'IBM Plex Mono, monospace',
+                    color: stock.earningsWarning ? '#ef5350' : '#8a93a8',
+                  }}>
+                    📅 {stock.nextEarningsDate}
+                  </span>
+                  {stock.earningsInDays !== null && (
+                    <span style={{
+                      fontSize: 11, fontFamily: 'IBM Plex Sans, sans-serif',
+                      color: stock.earningsWarning ? '#ef5350' : '#4a5268',
+                      fontWeight: stock.earningsWarning ? 700 : 400,
+                    }}>
+                      ({stock.earningsInDays}d away{stock.earningsWarning ? ' ⚠' : ''})
+                    </span>
+                  )}
+                </div>
+              </AuditSection>
+            )}
+
+            {/* Insider Activity */}
+            {stock.insiderSentiment && (
+              <AuditSection title="Insider Activity">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: stock.recentInsiderActivity ? 6 : 0 }}>
+                  <span style={{
+                    fontSize: 12, fontWeight: 700, fontFamily: 'IBM Plex Mono, monospace',
+                    padding: '3px 8px', borderRadius: 5,
+                    color: stock.insiderSentiment === 'BUYING' ? '#00d4aa' : stock.insiderSentiment === 'SELLING' ? '#ef5350' : '#8a93a8',
+                    background: stock.insiderSentiment === 'BUYING' ? 'rgba(0,212,170,0.12)' : stock.insiderSentiment === 'SELLING' ? 'rgba(239,83,80,0.12)' : 'rgba(138,147,168,0.1)',
+                    border: `1px solid ${stock.insiderSentiment === 'BUYING' ? 'rgba(0,212,170,0.3)' : stock.insiderSentiment === 'SELLING' ? 'rgba(239,83,80,0.3)' : 'rgba(138,147,168,0.2)'}`,
+                  }}>
+                    {stock.insiderSentiment === 'BUYING' ? '🟢' : stock.insiderSentiment === 'SELLING' ? '🔴' : '⚪'} {stock.insiderSentiment}
+                  </span>
+                </div>
+                {stock.recentInsiderActivity && (
+                  <div style={{ fontSize: 11, color: '#4a5268', fontFamily: 'IBM Plex Sans, sans-serif', lineHeight: 1.4 }}>
+                    {stock.recentInsiderActivity}
+                  </div>
+                )}
+              </AuditSection>
+            )}
+
             {/* Valuation */}
             <AuditSection title="Valuation">
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -625,13 +679,6 @@ function AuditOverlay({
               </AuditSection>
             )}
 
-            {/* Stop detail */}
-            <AuditSection title="Stop Detail">
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <AuditStat label="Hard Stop"  value={`$${stock.stop.toFixed(2)}`}                          color="#ff7043" />
-                <AuditStat label="ATR × Mult" value={`${ind.atr14.toFixed(2)} × ${stock.stopAtrMultiplier}x`} color="#8a93a8" />
-              </div>
-            </AuditSection>
           </>
         )}
       </div>
@@ -802,10 +849,11 @@ const StockCard = forwardRef<CardHandle, {
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        padding: '20px 20px 148px',
+        padding: '20px 20px 120px',
         gap: 14,
         touchAction: 'none',
         overflowY: 'auto',
+        maxHeight: 'calc(100dvh - 120px)',
       }}
       drag
       dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
@@ -836,15 +884,8 @@ const StockCard = forwardRef<CardHandle, {
         SAVE 🔖
       </motion.div>
 
-      {/* Swipe-up hint */}
-      <div style={{ position: 'absolute', bottom: 144, left: 0, right: 0, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
-        <span style={{ fontSize: 9, color: '#252d40', fontFamily: 'IBM Plex Sans, sans-serif', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-          ↑ swipe up for full audit
-        </span>
-      </div>
-
-      {/* Sector badge — absolute top-left: ETF ticker + arrow + % */}
-      <div style={{ position: 'absolute', top: 12, left: 12, pointerEvents: 'none' }}>
+      {/* Sector badge — absolute top-left: ETF ticker + arrow + % + relative strength */}
+      <div style={{ position: 'absolute', top: 12, left: 12, pointerEvents: 'none', display: 'flex', flexDirection: 'column', gap: 2 }}>
         <span style={{
           fontSize: 10,
           fontFamily: 'IBM Plex Mono, monospace',
@@ -855,6 +896,14 @@ const StockCard = forwardRef<CardHandle, {
           {stock.sectorTrend === 'UP' ? '↑' : stock.sectorTrend === 'DOWN' ? '↓' : '→'}
           {stock.sectorChangePercent !== 0 && `${stock.sectorChangePercent > 0 ? '+' : ''}${stock.sectorChangePercent.toFixed(1)}%`}
         </span>
+        {(() => {
+          const sv = getSectorVerdict(stock.changePercent, stock.sectorChangePercent);
+          return (
+            <span style={{ fontSize: 8, color: sv.color, fontFamily: 'IBM Plex Sans, sans-serif', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+              {sv.label}
+            </span>
+          );
+        })()}
       </div>
 
       {/* Change% — absolute top-right, leaves space for SAVE label */}
@@ -982,6 +1031,13 @@ const StockCard = forwardRef<CardHandle, {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Swipe-up hint — normal flow, at bottom of scrollable content */}
+      <div style={{ display: 'flex', justifyContent: 'center', pointerEvents: 'none', paddingTop: 4 }}>
+        <span style={{ fontSize: 9, color: '#252d40', fontFamily: 'IBM Plex Sans, sans-serif', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+          ↑ swipe up for full audit
+        </span>
       </div>
     </motion.div>
   );

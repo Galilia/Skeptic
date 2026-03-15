@@ -11,7 +11,7 @@ import {
   computeNearFibLevel,
   computeSupportResistance,
 } from '../indicators/analysis.js';
-import { getHistoricalBars, getLiveQuotes, getFearGreedIndex, getSectorEtfChange, getAnalystConsensus } from './fmp-provider.js';
+import { getHistoricalBars, getLiveQuotes, getFearGreedIndex, getSectorEtfChange, getTickerSummary } from './fmp-provider.js';
 
 /** Metadata for default portfolio */
 export const PORTFOLIO_META: Record<string, { name: string; sector: string; strategy: string }> = {
@@ -42,6 +42,8 @@ function computeRedFlags(
   price: number,
   peRatio: number | null,
   analystConsensus: string,
+  earningsWarning: boolean,
+  insiderSentiment: 'BUYING' | 'SELLING' | 'NEUTRAL' | null,
 ): string[] {
   const flags: string[] = [];
 
@@ -72,6 +74,10 @@ function computeRedFlags(
     flags.push(`Analyst consensus: ${analystConsensus}`);
   if (peRatio !== null && peRatio > 40)
     flags.push(`P/E ${peRatio.toFixed(1)} > 40 — Expensive valuation`);
+  if (earningsWarning)
+    flags.push('Earnings within 7 days — Elevated risk');
+  if (insiderSentiment === 'SELLING')
+    flags.push('Insider selling activity detected');
 
   return flags;
 }
@@ -146,10 +152,10 @@ export async function processStock(
     const peRatio = liveQuotes?.[ticker]?.trailingPE ?? null;
     const resolvedFearGreed = fearGreed ?? await getFearGreedIndex();
 
-    // Sector ETF trend (5-min cache) + analyst consensus (15-min cache)
-    const [sectorData, analystData] = await Promise.all([
+    // Sector ETF trend (5-min cache) + ticker summary (6-hour cache)
+    const [sectorData, summary] = await Promise.all([
       getSectorEtfChange(meta?.sector ?? ''),
-      getAnalystConsensus(ticker),
+      getTickerSummary(ticker),
     ]);
 
     // Risk/reward: reward = 2×ATR above entry, risk = buyTarget - stop
@@ -159,7 +165,8 @@ export async function processStock(
 
     const redFlags = computeRedFlags(
       indicators, audit, pattern, trendAligned,
-      resistanceLevels, price, peRatio, analystData.consensus
+      resistanceLevels, price, peRatio, summary.consensus,
+      summary.earningsWarning, summary.insiderSentiment,
     );
 
     console.log(`[processStock] ${ticker} price=${price} rsi=${indicators.rsi14} verdict=${verdictType}`);
@@ -203,10 +210,15 @@ export async function processStock(
       sectorChangePercent: sectorData.changePercent,
       sectorTrend: sectorData.trend,
       sectorEtfTicker: sectorData.etfTicker,
-      analystConsensus: analystData.consensus,
-      analystCount: analystData.count,
+      analystConsensus: summary.consensus,
+      analystCount: summary.count,
       stopAtrMultiplier,
       redFlags,
+      nextEarningsDate: summary.nextEarningsDate,
+      earningsInDays: summary.earningsInDays,
+      earningsWarning: summary.earningsWarning,
+      insiderSentiment: summary.insiderSentiment,
+      recentInsiderActivity: summary.recentInsiderActivity,
     };
   } catch (e) {
     console.error(`[processStock] Error for ${ticker}:`, e);

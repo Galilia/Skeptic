@@ -136,9 +136,19 @@ export async function getSectorEtfChange(sector: string): Promise<{ changePercen
   }
 }
 
-// ── Analyst Consensus ─────────────────────────────────────────────────────────
+// ── Ticker Summary (analyst + earnings + insider) — 6-hour cache ───────────────
 
-const analystCache = new NodeCache({ stdTTL: 900 }); // 15-minute cache
+export interface TickerSummaryData {
+  consensus: string;
+  count: number;
+  nextEarningsDate: string | null;
+  earningsInDays: number | null;
+  earningsWarning: boolean;
+  insiderSentiment: 'BUYING' | 'SELLING' | 'NEUTRAL' | null;
+  recentInsiderActivity: string | null;
+}
+
+const summaryCache = new NodeCache({ stdTTL: 21600 }); // 6-hour cache
 
 const RECOMMENDATION_LABELS: Record<string, string> = {
   strongBuy:    'Strong Buy',
@@ -148,24 +158,76 @@ const RECOMMENDATION_LABELS: Record<string, string> = {
   sell:         'Sell',
 };
 
-export async function getAnalystConsensus(ticker: string): Promise<{ consensus: string; count: number }> {
-  const cacheKey = `analyst_${ticker}`;
-  const cached = analystCache.get<{ consensus: string; count: number }>(cacheKey);
+const EMPTY_SUMMARY: TickerSummaryData = {
+  consensus: 'N/A', count: 0,
+  nextEarningsDate: null, earningsInDays: null, earningsWarning: false,
+  insiderSentiment: null, recentInsiderActivity: null,
+};
+
+export async function getTickerSummary(ticker: string): Promise<TickerSummaryData> {
+  const cacheKey = `summary_${ticker}`;
+  const cached = summaryCache.get<TickerSummaryData>(cacheKey);
   if (cached) return cached;
 
   try {
-    const summary = await yahooFinance.quoteSummary(ticker, { modules: ['financialData'] as any });
-    const fd = (summary as any).financialData;
-    const key   = fd?.recommendationKey ?? '';
+    const raw = await yahooFinance.quoteSummary(ticker, {
+      modules: ['financialData', 'calendarEvents', 'insiderTransactions'] as any,
+    });
+    const data = raw as any;
+
+    // ── Analyst consensus ──
+    const fd = data.financialData;
+    const key = fd?.recommendationKey ?? '';
+    const consensus = RECOMMENDATION_LABELS[key] ?? (key || 'N/A');
     const count = typeof fd?.numberOfAnalystOpinions === 'number' ? fd.numberOfAnalystOpinions : 0;
-    const result = {
-      consensus: RECOMMENDATION_LABELS[key] ?? (key || 'N/A'),
-      count,
+
+    // ── Next earnings date ──
+    let nextEarningsDate: string | null = null;
+    let earningsInDays: number | null = null;
+    let earningsWarning = false;
+    const earningsDates: Date[] = (data.calendarEvents?.earnings?.earningsDate ?? [])
+      .map((d: any) => (d instanceof Date ? d : new Date(d)))
+      .filter((d: Date) => !isNaN(d.getTime()) && d.getTime() > Date.now());
+    if (earningsDates.length > 0) {
+      const next = earningsDates.sort((a, b) => a.getTime() - b.getTime())[0];
+      nextEarningsDate = next.toISOString().split('T')[0];
+      earningsInDays = Math.round((next.getTime() - Date.now()) / 86400000);
+      earningsWarning = earningsInDays >= 0 && earningsInDays < 7;
+    }
+
+    // ── Insider sentiment (last 30 days) ──
+    let insiderSentiment: 'BUYING' | 'SELLING' | 'NEUTRAL' | null = null;
+    let recentInsiderActivity: string | null = null;
+    const cutoff = Date.now() - 30 * 86400000;
+    const transactions: any[] = data.insiderTransactions?.transactions ?? [];
+    const recent = transactions.filter((t: any) => {
+      const d = t.startDate instanceof Date ? t.startDate : new Date(t.startDate);
+      return d.getTime() >= cutoff;
+    });
+    if (recent.length > 0) {
+      const text = recent.map((t: any) => (t.transactionText ?? '')).join(' ').toLowerCase();
+      const buys  = (text.match(/purchase|buy/g) ?? []).length;
+      const sells = (text.match(/sale|sell/g) ?? []).length;
+      if (buys > sells) insiderSentiment = 'BUYING';
+      else if (sells > buys) insiderSentiment = 'SELLING';
+      else insiderSentiment = 'NEUTRAL';
+
+      const last = recent[0];
+      const name  = last.filerName ?? 'Insider';
+      const action = (last.transactionText ?? '').toLowerCase().includes('sale') ? 'sold' : 'bought';
+      const shares = last.shares != null ? `${Math.abs(last.shares).toLocaleString()} shares` : '';
+      recentInsiderActivity = [name, action, shares].filter(Boolean).join(' ');
+    }
+
+    const result: TickerSummaryData = {
+      consensus, count,
+      nextEarningsDate, earningsInDays, earningsWarning,
+      insiderSentiment, recentInsiderActivity,
     };
-    analystCache.set(cacheKey, result);
+    summaryCache.set(cacheKey, result);
     return result;
   } catch {
-    return { consensus: 'N/A', count: 0 };
+    return EMPTY_SUMMARY;
   }
 }
 
